@@ -26,12 +26,16 @@ Each story follows the working rule from `codex.md`:
 - Product differentiation: passive, explainable semantic connections
 
 ## Progress Snapshot (2026-03-01)
-- Overall status: `Epic E0 complete`; `Epics E1-E9 not started`.
+- Overall status: `Epic E0 complete`; `Epic E1 complete`; `Epics E2-E9 not started`.
 - Completed stories: `S0.1 Repository and service skeleton`, `S0.2 Quality bar and test harnesses`.
+- Completed stories: `S1.1 TipTap editor baseline`, `S1.2 Debounced autosave and processing triggers`.
 - Validation evidence:
   - `make setup` completed with `uv` and created `api/.venv`.
   - `make check` passed (`ruff`, `mypy`).
   - `make test` passed (`15` tests) and `tests/unit/test_structure.py` passed (`2` tests).
+  - Added E1 API and contract tests now pass (`25` python tests total).
+  - `npm --prefix web run typecheck` passed.
+  - `npm --prefix web run test` passed (`16` tests).
 - Noted environment behavior: shell `VIRTUAL_ENV=.venv` differs from project `api/.venv`; `uv` ignores the shell env and uses project env correctly.
 
 ## Epic E0: Project Foundations and Delivery Guardrails [Completed 2026-03-01]
@@ -73,7 +77,7 @@ Subtask ST0.2.3.a: Add local command aliases for full test runs.
 Subtask ST0.2.3.b: Add CI matrix for web/api/shared test execution.
 Subtask ST0.2.3.c: Set merge-blocking policy for failing tests.
 
-## Epic E1: Editor and Frontend Architecture
+## Epic E1: Editor and Frontend Architecture [Completed 2026-03-01]
 Context: The editor is the capture point for all graph intelligence. TipTap is recommended for flexibility with custom knowledge graph interactions.
 
 ### Story S1.1: TipTap editor baseline
@@ -457,7 +461,7 @@ Context: These are mandatory scenarios that validate the full architecture promi
 - Errors are logged with traceable IDs and surface meaningful diagnostics.
 
 ## Milestone Sequence
-M1: In progress (`E0 complete`, `E1 pending`).
+M1: Complete (`E0 complete`, `E1 complete`).
 M2: E2 data layer and E3 baseline NLP complete.
 M3: E4 resolution + E5 graph sync complete.
 M4: E6 visualization + E7 async pipeline complete.

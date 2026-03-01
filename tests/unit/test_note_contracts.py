@@ -1,0 +1,72 @@
+from __future__ import annotations
+
+from pathlib import Path
+
+import pytest
+from pydantic import ValidationError
+
+from shared.contracts.python.v1.note import (
+    GetNoteResponse,
+    SaveNoteRequest,
+    SaveNoteResponse,
+)
+
+ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_save_note_request_accepts_valid_payload() -> None:
+    request = SaveNoteRequest(
+        note_id="note-1",
+        content_json={"type": "doc", "content": []},
+        content_text="Knowledge graph note",
+        updated_at="2026-03-01T10:00:00Z",
+    )
+    assert request.note_id == "note-1"
+
+
+def test_save_note_request_rejects_empty_note_id() -> None:
+    with pytest.raises(ValidationError):
+        SaveNoteRequest(
+            note_id="",
+            content_json={"type": "doc", "content": []},
+            content_text="Knowledge graph note",
+            updated_at="2026-03-01T10:00:00Z",
+        )
+
+
+def test_save_note_response_shape() -> None:
+    response = SaveNoteResponse(
+        note_id="note-1",
+        saved_at="2026-03-01T10:00:00Z",
+        version=1,
+    )
+    assert response.version == 1
+
+
+def test_get_note_response_shape() -> None:
+    response = GetNoteResponse(
+        note_id="note-1",
+        content_json={"type": "doc", "content": []},
+        content_text="Knowledge graph note",
+        updated_at="2026-03-01T10:00:00Z",
+        version=1,
+    )
+    assert response.note_id == "note-1"
+
+
+def test_ts_note_contract_contains_required_fields() -> None:
+    ts_contract = (ROOT / "shared/contracts/ts/v1/note.ts").read_text()
+    required_tokens = [
+        "interface SaveNoteRequest",
+        "note_id: string",
+        "content_json: Record<string, unknown>",
+        "content_text: string",
+        "updated_at: string",
+        "interface SaveNoteResponse",
+        "saved_at: string",
+        "version: number",
+        "interface GetNoteResponse",
+    ]
+
+    for token in required_tokens:
+        assert token in ts_contract, f"Missing token in TS note contract: {token}"

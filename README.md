@@ -3,8 +3,8 @@
 NeuroNote is a monorepo with a web frontend, a Python API service, shared contracts, and infrastructure configuration.
 
 ## Services
-- `web/`: frontend shell and client-side API helpers.
-- `api/`: FastAPI service for health and note-processing endpoints.
+- `web/`: Next.js frontend with note editor, autosave orchestration, and API clients.
+- `api/`: FastAPI service for health, note persistence, and note-processing endpoints.
 - `shared/`: versioned request/response contracts shared across services.
 - `infra/`: local infrastructure orchestration.
 - `tests/`: repository-level structure and integration tests.
@@ -14,3 +14,4 @@ NeuroNote is a monorepo with a web frontend, a Python API service, shared contra
 2. Bootstrap base tooling via `make setup`.
 3. Run checks with `make check`.
 4. Run tests with `make test`.
+5. For web tests, install JS deps with `npm --prefix web install` then run `npm --prefix web run test`.
