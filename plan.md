@@ -26,9 +26,10 @@ Each story follows the working rule from `codex.md`:
 - Product differentiation: passive, explainable semantic connections
 
 ## Progress Snapshot (2026-03-01)
-- Overall status: `Epic E0 complete`; `Epic E1 complete`; `Epics E2-E9 not started`.
+- Overall status: `Epic E0 complete`; `Epic E1 complete`; `Epic E2 complete`; `Epics E3-E9 not started`.
 - Completed stories: `S0.1 Repository and service skeleton`, `S0.2 Quality bar and test harnesses`.
 - Completed stories: `S1.1 TipTap editor baseline`, `S1.2 Debounced autosave and processing triggers`.
+- Completed stories: `S2.1 Core relational schema for notes and blocks`, `S2.2 Graph and vector extension activation`.
 - Validation evidence:
   - `make setup` completed with `uv` and created `api/.venv`.
   - `make check` passed (`ruff`, `mypy`).
@@ -36,7 +37,12 @@ Each story follows the working rule from `codex.md`:
   - Added E1 API and contract tests now pass (`25` python tests total).
   - `npm --prefix web run typecheck` passed.
   - `npm --prefix web run test` passed (`16` tests).
+  - Added E2 DB structure (`app/db`), Alembic scaffold, and migrations with `subjects/notes/blocks/tags`.
+  - Added DB-focused tests for schema integrity, repository behavior, extension checks, and graph/vector repository operations.
+  - `make test-db` passes against extension-enabled local Postgres (`4` tests).
+  - `make db-check-extensions` passes (`AGE and pgvector checks passed`).
 - Noted environment behavior: shell `VIRTUAL_ENV=.venv` differs from project `api/.venv`; `uv` ignores the shell env and uses project env correctly.
+  - Local extension profile now builds via `infra/db/Dockerfile` and exposes both `age` and `vector`.
 
 ## Epic E0: Project Foundations and Delivery Guardrails [Completed 2026-03-01]
 Context: The scoping doc assumes a multi-service system. Without shared conventions, implementation speed will collapse under integration drift. This epic creates the base structure, contract boundaries, and CI quality gates so all later epics are reliable.
@@ -116,7 +122,7 @@ Subtask ST1.2.3.a: Wire editor events to autosave.
 Subtask ST1.2.3.b: Wire processing trigger after stable note content.
 Subtask ST1.2.3.c: Expose processing state in UI.
 
-## Epic E2: Unified Database (PostgreSQL + Apache AGE + pgvector)
+## Epic E2: Unified Database (PostgreSQL + Apache AGE + pgvector) [Completed 2026-03-01]
 Context: The scoping doc identifies one-database architecture as the biggest complexity reducer. This epic establishes that foundation.
 
 ### Story S2.1: Core relational schema for notes and blocks

@@ -22,3 +22,15 @@ class GetNoteResponse(BaseModel):
     content_text: str = Field(min_length=1)
     updated_at: str = Field(min_length=1)
     version: int = Field(ge=1)
+
+
+class NoteSummary(BaseModel):
+    note_id: str = Field(min_length=1)
+    content_text: str = Field(min_length=1)
+    updated_at: str = Field(min_length=1)
+    version: int = Field(ge=1)
+
+
+class ListNotesResponse(BaseModel):
+    items: list[NoteSummary]
+    total: int = Field(ge=0)

@@ -1,0 +1,72 @@
+from __future__ import annotations
+
+from threading import Lock
+
+from sqlalchemy import create_engine
+from sqlalchemy.engine import Engine
+from sqlalchemy.orm import Session, sessionmaker
+
+from app.db.config import get_database_settings
+from app.db.models import Base
+
+_ENGINE: Engine | None = None
+_SESSION_FACTORY: sessionmaker[Session] | None = None
+_ACTIVE_DATABASE_URL: str | None = None
+_LOCK = Lock()
+
+
+def _build_engine(database_url: str, *, db_echo: bool) -> Engine:
+    connect_args: dict[str, object] = {}
+    if database_url.startswith("sqlite"):
+        connect_args["check_same_thread"] = False
+
+    return create_engine(
+        database_url,
+        echo=db_echo,
+        future=True,
+        pool_pre_ping=not database_url.startswith("sqlite"),
+        connect_args=connect_args,
+    )
+
+
+def get_engine() -> Engine:
+    global _ENGINE, _SESSION_FACTORY, _ACTIVE_DATABASE_URL
+
+    settings = get_database_settings()
+    with _LOCK:
+        if _ENGINE is None or _ACTIVE_DATABASE_URL != settings.database_url:
+            if _ENGINE is not None:
+                _ENGINE.dispose()
+            _ENGINE = _build_engine(settings.database_url, db_echo=settings.db_echo)
+            _SESSION_FACTORY = sessionmaker(
+                bind=_ENGINE,
+                autoflush=False,
+                expire_on_commit=False,
+                class_=Session,
+            )
+            _ACTIVE_DATABASE_URL = settings.database_url
+        return _ENGINE
+
+
+def get_session_factory() -> sessionmaker[Session]:
+    _ = get_engine()
+    assert _SESSION_FACTORY is not None
+    return _SESSION_FACTORY
+
+
+def initialize_database() -> None:
+    settings = get_database_settings()
+    if not settings.db_auto_create:
+        return
+    Base.metadata.create_all(bind=get_engine())
+
+
+def reset_engine() -> None:
+    global _ENGINE, _SESSION_FACTORY, _ACTIVE_DATABASE_URL
+
+    with _LOCK:
+        if _ENGINE is not None:
+            _ENGINE.dispose()
+        _ENGINE = None
+        _SESSION_FACTORY = None
+        _ACTIVE_DATABASE_URL = None

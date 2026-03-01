@@ -1,11 +1,37 @@
 services:
+  db:
+    build:
+      context: .
+      dockerfile: db/Dockerfile
+    image: neuronote-postgres-ext:16
+    environment:
+      POSTGRES_DB: neuronote
+      POSTGRES_USER: neuronote
+      POSTGRES_PASSWORD: neuronote
+    ports:
+      - "5432:5432"
+    volumes:
+      - neuronote-db-data:/var/lib/postgresql/data
+      - ./sql:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U neuronote -d neuronote"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   api:
     image: python:3.14-slim
     working_dir: /app
-    command: sh -lc "pip install uv && UV_CACHE_DIR=/tmp/uv-cache uv sync --project api --group dev && UV_CACHE_DIR=/tmp/uv-cache uv run --project api uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    command: sh -lc "pip install uv && UV_CACHE_DIR=/tmp/uv-cache uv sync --project api --group dev && DATABASE_URL=postgresql+psycopg://neuronote:neuronote@db:5432/neuronote REQUIRE_DB_EXTENSIONS=false UV_CACHE_DIR=/tmp/uv-cache uv run --project api uvicorn app.main:app --host 0.0.0.0 --port 8000"
     volumes:
       - ..:/app
     ports:
       - "8000:8000"
     env_file:
       - ../api/.env.example
+    depends_on:
+      db:
+        condition: service_healthy
+
+volumes:
+  neuronote-db-data:

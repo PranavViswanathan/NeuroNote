@@ -20,9 +20,12 @@ node_modules/
 .next/
 dist/
 coverage/
+web/tsconfig.tsbuildinfo
 
 # Local caches
 .uv-cache/
+api/dev.db
+*.db-journal
 
 # Environment files
 .env

@@ -7,6 +7,8 @@ from pydantic import ValidationError
 
 from shared.contracts.python.v1.note import (
     GetNoteResponse,
+    ListNotesResponse,
+    NoteSummary,
     SaveNoteRequest,
     SaveNoteResponse,
 )
@@ -54,6 +56,21 @@ def test_get_note_response_shape() -> None:
     assert response.note_id == "note-1"
 
 
+def test_list_notes_response_shape() -> None:
+    response = ListNotesResponse(
+        items=[
+            NoteSummary(
+                note_id="note-1",
+                content_text="Knowledge graph note",
+                updated_at="2026-03-01T10:00:00Z",
+                version=1,
+            )
+        ],
+        total=1,
+    )
+    assert response.total == 1
+
+
 def test_ts_note_contract_contains_required_fields() -> None:
     ts_contract = (ROOT / "shared/contracts/ts/v1/note.ts").read_text()
     required_tokens = [
@@ -66,6 +83,10 @@ def test_ts_note_contract_contains_required_fields() -> None:
         "saved_at: string",
         "version: number",
         "interface GetNoteResponse",
+        "interface NoteSummary",
+        "interface ListNotesResponse",
+        "items: NoteSummary[]",
+        "total: number",
     ]
 
     for token in required_tokens:

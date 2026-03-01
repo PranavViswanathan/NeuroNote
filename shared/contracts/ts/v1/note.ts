@@ -18,3 +18,15 @@ export interface GetNoteResponse {
   updated_at: string;
   version: number;
 }
+
+export interface NoteSummary {
+  note_id: string;
+  content_text: string;
+  updated_at: string;
+  version: number;
+}
+
+export interface ListNotesResponse {
+  items: NoteSummary[];
+  total: number;
+}
