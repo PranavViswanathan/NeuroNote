@@ -1,0 +1,34 @@
+name: ci
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  api-fast-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v3
+      - name: Sync API dependencies
+        run: uv sync --project api --group dev
+      - name: Lint
+        run: uv run --project api --group dev ruff check api/src shared tests
+      - name: Type check
+        run: uv run --project api --group dev mypy api/src shared
+      - name: Tests
+        run: uv run --project api --group dev pytest tests/integration tests/unit -q
+
+  web-fast-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Run web placeholders
+        run: |
+          cd web
+          npm run lint
+          npm run typecheck
+          npm run test

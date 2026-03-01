@@ -1,0 +1,11 @@
+services:
+  api:
+    image: python:3.14-slim
+    working_dir: /app
+    command: sh -lc "pip install uv && UV_CACHE_DIR=/tmp/uv-cache uv sync --project api --group dev && UV_CACHE_DIR=/tmp/uv-cache uv run --project api uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    volumes:
+      - ..:/app
+    ports:
+      - "8000:8000"
+    env_file:
+      - ../api/.env.example

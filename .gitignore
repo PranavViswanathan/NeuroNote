@@ -1,0 +1,39 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Node
+node_modules/
+.next/
+dist/
+coverage/
+
+# Local caches
+.uv-cache/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# OS and editor
+.DS_Store
+.vscode/
+.idea/
+
+# Legacy tracked tool dirs (keep untracked)
+bin/
+lib/

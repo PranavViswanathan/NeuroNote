@@ -1,0 +1,11 @@
+{
+  "name": "neuronote-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "lint": "echo 'web lint placeholder'",
+    "typecheck": "echo 'web typecheck placeholder'",
+    "test": "echo 'web tests placeholder'"
+  }
+}
