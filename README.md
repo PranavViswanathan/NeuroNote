@@ -15,3 +15,8 @@ NeuroNote is a monorepo with a web frontend, a Python API service, shared contra
 3. Run checks with `make check`.
 4. Run tests with `make test`.
 5. For web tests, install JS deps with `npm --prefix web install` then run `npm --prefix web run test`.
+
+## Run Locally (Browser)
+1. Start API: `make run-api`
+2. Start web (new terminal): `make run-web`
+3. Open: `http://localhost:3000/notes/sample-note`
