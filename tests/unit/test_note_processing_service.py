@@ -33,7 +33,7 @@ class _FakePipeline:
         )
 
 
-def test_process_note_raises_when_note_is_missing() -> None:
+def test_process_note_raises_when_note_is_missing(configured_db: None) -> None:
     pipeline = _FakePipeline()
     service = NoteProcessingService(
         session_factory=get_session_factory(),

@@ -38,5 +38,5 @@ api/dev.db
 .idea/
 
 # Legacy tracked tool dirs (keep untracked)
-bin/
-lib/
+/bin/
+/lib/
