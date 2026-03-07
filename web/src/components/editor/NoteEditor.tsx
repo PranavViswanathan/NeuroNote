@@ -1,8 +1,9 @@
 "use client";
 
-import { ChangeEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { EditorToolbar } from "./EditorToolbar";
+import { TipTapEditor, type TipTapUpdatePayload } from "./TipTapEditor";
 import {
   fetchProcessingStatus,
   getNote,
@@ -30,21 +31,6 @@ interface NoteSnapshot {
   documentJson: EditorDoc;
   plainText: string;
   updatedAt: string;
-}
-
-function makeDocFromPlainText(text: string): EditorDoc {
-  if (text.length === 0) {
-    return createEmptyEditorDoc();
-  }
-  return {
-    type: "doc",
-    content: [
-      {
-        type: "paragraph",
-        content: [{ type: "text", text }],
-      },
-    ],
-  };
 }
 
 function makeHash(content: string): string {
@@ -199,30 +185,25 @@ export function NoteEditor({
     };
   }, []);
 
-  const handleTextChange = useCallback((event: ChangeEvent<HTMLTextAreaElement>) => {
-    const nextText = event.target.value;
-    const nextDoc = makeDocFromPlainText(nextText);
+  const handleEditorUpdate = useCallback((payload: TipTapUpdatePayload) => {
+    const nextDoc = coerceEditorDoc(payload.json);
+    const nextText = payload.text;
     const nextUpdatedAt = new Date().toISOString();
 
-    setPlainText(nextText);
     setDocumentJson(nextDoc);
+    setPlainText(nextText);
     setUpdatedAt(nextUpdatedAt);
     setDirty(true);
     setSaveStatus("idle");
     lifecycleRef.current?.onEdit();
   }, []);
 
-  const textareaId = useMemo(() => `note-editor-${noteId}`, [noteId]);
-
   return (
     <section data-testid="note-editor">
       <EditorToolbar dirty={dirty} saveStatus={saveStatus} processStatus={processStatus} />
-      <label htmlFor={textareaId}>Note editor</label>
-      <textarea
-        id={textareaId}
-        aria-label="Note editor"
-        value={plainText}
-        onChange={handleTextChange}
+      <TipTapEditor
+        value={documentJson}
+        onUpdate={handleEditorUpdate}
         onBlur={() => lifecycleRef.current?.onBlur()}
         disabled={isLoading}
       />

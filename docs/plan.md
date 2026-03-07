@@ -1,14 +1,14 @@
 # NeuroNote Implementation Plan
 
 ## Purpose
-This document translates `initial_scoping_doc.md` into executable action items with full context, organized as:
+This document translates `docs/initial_scoping_doc.md` into executable action items with full context, organized as:
 
 - Epic
 - Story
 - Task
 - Subtask
 
-Each story follows the working rule from `codex.md`:
+Each story follows the working rule from `docs/codex.md`:
 
 1. Build structure first.
 2. Write test cases for viable scenarios.
@@ -47,6 +47,21 @@ Each story follows the working rule from `codex.md`:
   - Current Python validation set: `50 passed, 4 skipped` (`integration + unit + perf`).
 - Noted environment behavior: shell `VIRTUAL_ENV=.venv` differs from project `api/.venv`; `uv` ignores the shell env and uses project env correctly.
   - Local extension profile now builds via `infra/db/Dockerfile` and exposes both `age` and `vector`.
+  - Current hardening validation after editor/process alignment: `48 passed, 4 skipped` (Python `integration + unit`) and `16 passed` (web tests).
+  - Added containerized fallback workflow for unstable local `uv`: compose-managed `api` service uses `uv` inside container (`infra/api/Dockerfile` + entrypoint sync script) with compose-based run/check/test/migrate targets.
+  - Documentation now standardized to compose-first operation (`compose-up/check/test/migrate/down`) with native local `uv` as optional fallback.
+- Hardening pass completed (2026-03-07):
+  - `NoteEditor` now uses TipTap as the single runtime editor path (textarea path removed).
+  - `/v1/process-note` dedupe now keys on persisted `note.content_hash` (server-authoritative), not client payload hash.
+  - Dead code cleanup completed for removed editor state helper and unused placeholder package.
+
+## Architecture Decisions (Track In docs/plan.md)
+- 2026-03-07: TipTap is the canonical editor runtime path.
+  - Rationale: avoid dual editor behavior drift and keep one document lifecycle.
+  - Impacted areas: `web/src/components/editor/NoteEditor.tsx`, `web/src/components/editor/TipTapEditor.tsx`.
+- 2026-03-07: Processing job coalescing uses persisted note hash as source of truth.
+  - Rationale: processing already executes on DB snapshot; dedupe key must match persisted snapshot identity.
+  - Impacted areas: `api/src/app/routes/process.py`, `tests/integration/test_process_api.py`.
 
 ## Epic E0: Project Foundations and Delivery Guardrails [Completed 2026-03-01]
 Context: The scoping doc assumes a multi-service system. Without shared conventions, implementation speed will collapse under integration drift. This epic creates the base structure, contract boundaries, and CI quality gates so all later epics are reliable.

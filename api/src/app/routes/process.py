@@ -53,7 +53,7 @@ def process_note(
 
     record, created = create_or_get_job(
         note_id=payload.note_id,
-        content_hash=payload.content_hash,
+        content_hash=note.content_hash,
     )
     if created:
         background_tasks.add_task(_run_processing_job, job_id=record.job_id, payload=payload)

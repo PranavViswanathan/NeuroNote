@@ -4,16 +4,24 @@ import { EditorContent, useEditor, type JSONContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useEffect } from "react";
 
-interface TipTapEditorProps {
-  value: JSONContent;
-  onUpdate: (payload: { json: JSONContent; text: string }) => void;
-  onBlur: () => void;
+export interface TipTapUpdatePayload {
+  json: JSONContent;
+  text: string;
 }
 
-export function TipTapEditor({ value, onUpdate, onBlur }: TipTapEditorProps) {
+interface TipTapEditorProps {
+  value: JSONContent;
+  onUpdate: (payload: TipTapUpdatePayload) => void;
+  onBlur: () => void;
+  disabled?: boolean;
+}
+
+export function TipTapEditor({ value, onUpdate, onBlur, disabled = false }: TipTapEditorProps) {
+  const serializedValue = JSON.stringify(value);
   const editor = useEditor({
     extensions: [StarterKit],
     content: value,
+    editable: !disabled,
     onUpdate: ({ editor: tiptapEditor }) => {
       onUpdate({
         json: tiptapEditor.getJSON(),
@@ -29,12 +37,29 @@ export function TipTapEditor({ value, onUpdate, onBlur }: TipTapEditorProps) {
     if (!editor) {
       return;
     }
-    editor.commands.setContent(value);
-  }, [editor, value]);
+    const currentSerialized = JSON.stringify(editor.getJSON());
+    if (currentSerialized === serializedValue) {
+      return;
+    }
+    editor.commands.setContent(value, false);
+  }, [editor, value, serializedValue]);
+
+  useEffect(() => {
+    if (!editor) {
+      return;
+    }
+    editor.setEditable(!disabled);
+  }, [disabled, editor]);
 
   if (!editor) {
     return null;
   }
 
-  return <EditorContent editor={editor} aria-label="TipTap editor" data-testid="tiptap-editor" />;
+  return (
+    <EditorContent
+      editor={editor}
+      aria-label="TipTap editor"
+      data-testid="tiptap-editor"
+    />
+  );
 }

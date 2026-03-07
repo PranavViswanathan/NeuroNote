@@ -9,7 +9,7 @@ services:
       POSTGRES_USER: neuronote
       POSTGRES_PASSWORD: neuronote
     ports:
-      - "5432:5432"
+      - "${DB_PORT:-5432}:5432"
     volumes:
       - neuronote-db-data:/var/lib/postgresql/data
       - ./sql:/docker-entrypoint-initdb.d
@@ -20,18 +20,57 @@ services:
       retries: 10
 
   api:
-    image: python:3.14-slim
+    build:
+      context: ..
+      dockerfile: infra/api/Dockerfile
+    image: neuronote-api:dev
     working_dir: /app
-    command: sh -lc "pip install uv && UV_CACHE_DIR=/tmp/uv-cache uv sync --project api --group dev && DATABASE_URL=postgresql+psycopg://neuronote:neuronote@db:5432/neuronote REQUIRE_DB_EXTENSIONS=false UV_CACHE_DIR=/tmp/uv-cache uv run --project api uvicorn app.main:app --host 0.0.0.0 --port 8000"
+    command:
+      [
+        "uv",
+        "run",
+        "--project",
+        "api",
+        "--group",
+        "dev",
+        "uvicorn",
+        "app.main:app",
+        "--app-dir",
+        "api/src",
+        "--host",
+        "0.0.0.0",
+        "--port",
+        "8000",
+        "--reload",
+      ]
     volumes:
       - ..:/app
+      - uv-cache:/tmp/uv-cache
     ports:
-      - "8000:8000"
-    env_file:
-      - ../api/.env.example
+      - "${API_PORT:-8000}:8000"
+    environment:
+      DATABASE_URL: postgresql+psycopg://neuronote:neuronote@db:5432/neuronote
+      REQUIRE_DB_EXTENSIONS: "false"
+      UV_PROJECT_ENVIRONMENT: /tmp/neuronote-api-venv
+      UV_CACHE_DIR: /tmp/uv-cache
+      PYTHONPATH: api/src:.
     depends_on:
       db:
         condition: service_healthy
 
+  web:
+    image: node:20
+    working_dir: /app/web
+    command: sh -lc "npm install && npm run dev -- --hostname 0.0.0.0 --port 3000"
+    volumes:
+      - ..:/app
+    ports:
+      - "${WEB_PORT:-3000}:3000"
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: http://127.0.0.1:8000
+    depends_on:
+      - api
+
 volumes:
   neuronote-db-data:
+  uv-cache:

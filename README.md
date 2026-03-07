@@ -9,30 +9,53 @@ NeuroNote is a monorepo with a web frontend, a Python API service, shared contra
 - `infra/`: local infrastructure orchestration.
 - `tests/`: repository-level structure and integration tests.
 
-## Quick Start
-1. Create/activate `.venv`.
-2. Bootstrap base tooling via `make setup`.
-3. Run checks with `make check`.
-4. Run tests with `make test`.
-5. For web tests, install JS deps with `npm --prefix web install` then run `npm --prefix web run test`.
-6. For DB migrations, run `make db-migrate`.
-7. For NLP perf guardrails, run `make test-perf`.
+## Project Docs
+- `docs/codex.md`: project working instructions.
+- `docs/plan.md`: executable implementation plan and architecture decisions.
+- `docs/initial_scoping_doc.md`: original scoping and requirements baseline.
+- `docs/decisions.md`: non-plan implementation notes and operational decisions.
 
-## Run Locally (Browser)
-1. Start Postgres with extensions: `make db-up`
-2. Bootstrap extensions: `make db-bootstrap-extensions`
-3. Apply migrations: `make db-migrate`
-4. Start API against Postgres: `make run-api-db`
-5. Start web (new terminal): `make run-web`
-6. Open: `http://localhost:3000/notes/sample-note`
+## Recommended Workflow (Docker Compose + uv)
+This is the default way to run NeuroNote now. API commands still use `uv`, but inside Docker containers.
 
-If you want to run API without Postgres (SQLite dev mode), use `make run-api`.
+### Quick Start
+1. Ensure Docker Desktop is running.
+2. Start full stack:
+   - `make compose-up`
+   - If default ports are busy:
+     - `WEB_PORT=3001 API_PORT=8001 DB_PORT=5433 make compose-up`
+3. Apply migrations:
+   - `make compose-migrate`
+4. Run API checks:
+   - `make compose-check`
+5. Run API tests:
+   - `make compose-test`
+6. Open browser:
+   - `http://localhost:3000/notes/sample-note`
+7. Stop stack:
+   - `make compose-down`
 
-## Postgres Profile (Extensions)
-1. Start extension-enabled DB container (builds local image): `make db-up`
-2. Bootstrap extension install attempts: `make db-bootstrap-extensions`
-3. Run migrations: `make db-migrate`
-4. Validate AGE/pgvector support: `make db-check-extensions`
+### Common Commands
+- API checks: `make compose-check`
+- API tests: `make compose-test`
+- PostgreSQL extension tests: `make compose-test-db`
+- Bootstrap DB extensions manually: `make compose-bootstrap-extensions`
+- Stream logs: `make compose-logs`
+
+### Default URLs
+- Web: `http://localhost:3000`
+- API: `http://localhost:8000`
+- Postgres: `localhost:5432`
+
+If you override `WEB_PORT` / `API_PORT` / `DB_PORT`, use those port numbers in URLs and DB clients.
+
+## Local Fallback (Native uv)
+Use this only if you explicitly want a non-container local run.
+
+1. `make setup`
+2. `make check`
+3. `make test`
+4. `make run-api-db` and `make run-web`
 
 ## Validate Processing Flow
 1. Save a note through API:

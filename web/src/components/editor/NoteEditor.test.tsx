@@ -16,6 +16,56 @@ vi.mock("../../lib/api-client", () => ({
   fetchProcessingStatus: vi.fn(),
 }));
 
+vi.mock("./TipTapEditor", () => ({
+  TipTapEditor: ({
+    value,
+    onUpdate,
+    onBlur,
+    disabled,
+  }: {
+    value: Record<string, unknown>;
+    onUpdate: (payload: { json: Record<string, unknown>; text: string }) => void;
+    onBlur: () => void;
+    disabled?: boolean;
+  }) => {
+    const firstBlock = Array.isArray(value.content) ? value.content[0] : undefined;
+    const firstText =
+      firstBlock &&
+      typeof firstBlock === "object" &&
+      Array.isArray((firstBlock as { content?: unknown[] }).content)
+        ? (firstBlock as { content: unknown[] }).content[0]
+        : undefined;
+    const plainText =
+      firstText && typeof firstText === "object" && typeof (firstText as { text?: unknown }).text === "string"
+        ? (firstText as { text: string }).text
+        : "";
+
+    return (
+      <textarea
+        aria-label="TipTap editor"
+        data-testid="tiptap-editor"
+        value={plainText}
+        disabled={disabled}
+        onChange={(event) =>
+          onUpdate({
+            json: {
+              type: "doc",
+              content: [
+                {
+                  type: "paragraph",
+                  content: [{ type: "text", text: event.target.value }],
+                },
+              ],
+            },
+            text: event.target.value,
+          })
+        }
+        onBlur={onBlur}
+      />
+    );
+  },
+}));
+
 describe("NoteEditor", () => {
   beforeEach(() => {
     vi.useRealTimers();
@@ -48,7 +98,7 @@ describe("NoteEditor", () => {
     render(<NoteEditor noteId="note-1" baseUrl="http://localhost:8000" />);
 
     await waitFor(() => {
-      expect(screen.getByLabelText("Note editor")).toHaveValue("Loaded text");
+      expect(screen.getByLabelText("TipTap editor")).toHaveValue("Loaded text");
     });
   });
 
@@ -80,9 +130,9 @@ describe("NoteEditor", () => {
     );
 
     await waitFor(() =>
-      expect(screen.getByLabelText("Note editor")).not.toBeDisabled(),
+      expect(screen.getByLabelText("TipTap editor")).not.toBeDisabled(),
     );
-    const input = screen.getByLabelText("Note editor");
+    const input = screen.getByLabelText("TipTap editor");
     fireEvent.change(input, { target: { value: "Updated content" } });
 
     expect(screen.getByTestId("dirty-flag")).toHaveTextContent("dirty");
@@ -118,9 +168,9 @@ describe("NoteEditor", () => {
     );
 
     await waitFor(() =>
-      expect(screen.getByLabelText("Note editor")).not.toBeDisabled(),
+      expect(screen.getByLabelText("TipTap editor")).not.toBeDisabled(),
     );
-    const input = screen.getByLabelText("Note editor");
+    const input = screen.getByLabelText("TipTap editor");
     fireEvent.change(input, { target: { value: "Trigger error" } });
 
     await waitFor(() =>

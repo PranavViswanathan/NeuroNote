@@ -20,11 +20,17 @@ def _note_payload(note_id: str, text: str, updated_at: str) -> dict[str, object]
     }
 
 
-def _process_payload(note_id: str, text: str, updated_at: str) -> dict[str, object]:
+def _process_payload(
+    note_id: str,
+    text: str,
+    updated_at: str,
+    *,
+    content_hash: str | None = None,
+) -> dict[str, object]:
     return {
         "note_id": note_id,
         "content_text": text,
-        "content_hash": hashlib.sha256(text.encode("utf-8")).hexdigest(),
+        "content_hash": content_hash or hashlib.sha256(text.encode("utf-8")).hexdigest(),
         "updated_at": updated_at,
     }
 
@@ -57,19 +63,75 @@ def test_process_note_background_flow_completes(client: TestClient) -> None:
     assert status == "completed"
 
 
-def test_process_note_coalesces_identical_note_version(client: TestClient) -> None:
+def test_process_note_coalesces_same_persisted_snapshot_with_different_client_hashes(
+    client: TestClient,
+) -> None:
     note_id = "note-process-api-2"
     text = "Entity resolution links aliases to canonical concepts."
     updated_at = "2026-03-07T12:11:00Z"
-    payload = _process_payload(note_id, text, updated_at)
 
     client.put(f"/v1/notes/{note_id}", json=_note_payload(note_id, text, updated_at))
-    first = client.post("/v1/process-note", json=payload)
-    second = client.post("/v1/process-note", json=payload)
+    first = client.post(
+        "/v1/process-note",
+        json=_process_payload(
+            note_id=note_id,
+            text="client payload one",
+            updated_at=updated_at,
+            content_hash="client-hash-1",
+        ),
+    )
+    second = client.post(
+        "/v1/process-note",
+        json=_process_payload(
+            note_id=note_id,
+            text="client payload two",
+            updated_at=updated_at,
+            content_hash="client-hash-2",
+        ),
+    )
 
     assert first.status_code == 202
     assert second.status_code == 202
     assert first.json()["job_id"] == second.json()["job_id"]
+
+
+def test_process_note_queues_new_job_after_note_content_changes(client: TestClient) -> None:
+    note_id = "note-process-api-3"
+    first_text = "Knowledge graphs improve retrieval quality."
+    second_text = "Knowledge graphs improve retrieval and reasoning quality."
+    first_updated_at = "2026-03-07T12:12:00Z"
+    second_updated_at = "2026-03-07T12:13:00Z"
+
+    client.put(
+        f"/v1/notes/{note_id}",
+        json=_note_payload(note_id, first_text, first_updated_at),
+    )
+    first_job = client.post(
+        "/v1/process-note",
+        json=_process_payload(
+            note_id=note_id,
+            text="stale-client-text",
+            updated_at=first_updated_at,
+            content_hash="constant-client-hash",
+        ),
+    )
+    assert first_job.status_code == 202
+
+    client.put(
+        f"/v1/notes/{note_id}",
+        json=_note_payload(note_id, second_text, second_updated_at),
+    )
+    second_job = client.post(
+        "/v1/process-note",
+        json=_process_payload(
+            note_id=note_id,
+            text="stale-client-text",
+            updated_at=second_updated_at,
+            content_hash="constant-client-hash",
+        ),
+    )
+    assert second_job.status_code == 202
+    assert first_job.json()["job_id"] != second_job.json()["job_id"]
 
 
 def test_process_note_returns_404_for_unknown_note(client: TestClient) -> None:
