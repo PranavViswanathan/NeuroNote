@@ -25,22 +25,26 @@ Each story follows the working rule from `codex.md`:
 - Background jobs: FastAPI BackgroundTasks first, Huey later
 - Product differentiation: passive, explainable semantic connections
 
-## Progress Snapshot (2026-03-01)
-- Overall status: `Epic E0 complete`; `Epic E1 complete`; `Epic E2 complete`; `Epics E3-E9 not started`.
+## Progress Snapshot (2026-03-07)
+- Overall status: `Epic E0 complete`; `Epic E1 complete`; `Epic E2 complete`; `Epic E3 complete`; `Epics E4-E9 not started`.
 - Completed stories: `S0.1 Repository and service skeleton`, `S0.2 Quality bar and test harnesses`.
 - Completed stories: `S1.1 TipTap editor baseline`, `S1.2 Debounced autosave and processing triggers`.
 - Completed stories: `S2.1 Core relational schema for notes and blocks`, `S2.2 Graph and vector extension activation`.
+- Completed stories: `S3.1 spaCy + keyphrase + relation extraction pipeline`, `S3.2 NLP latency budget and performance regression control`.
 - Validation evidence:
   - `make setup` completed with `uv` and created `api/.venv`.
   - `make check` passed (`ruff`, `mypy`).
-  - `make test` passed (`15` tests) and `tests/unit/test_structure.py` passed (`2` tests).
-  - Added E1 API and contract tests now pass (`25` python tests total).
+  - `make test` passed and `tests/unit/test_structure.py` passed with E3 additions.
+  - Added E1 API and contract tests now pass.
   - `npm --prefix web run typecheck` passed.
   - `npm --prefix web run test` passed (`16` tests).
   - Added E2 DB structure (`app/db`), Alembic scaffold, and migrations with `subjects/notes/blocks/tags`.
   - Added DB-focused tests for schema integrity, repository behavior, extension checks, and graph/vector repository operations.
   - `make test-db` passes against extension-enabled local Postgres (`4` tests).
   - `make db-check-extensions` passes (`AGE and pgvector checks passed`).
+  - Added E3 NLP package (`app/nlp`), note processing service, background job lifecycle transitions, note-version job coalescing, and processing API integration tests.
+  - Added E3 perf fixtures (`200/800/2000` words) and latency guardrail tests under `tests/perf`.
+  - Current Python validation set: `50 passed, 4 skipped` (`integration + unit + perf`).
 - Noted environment behavior: shell `VIRTUAL_ENV=.venv` differs from project `api/.venv`; `uv` ignores the shell env and uses project env correctly.
   - Local extension profile now builds via `infra/db/Dockerfile` and exposes both `age` and `vector`.
 
@@ -161,10 +165,10 @@ Subtask ST2.2.3.a: Add graph node and edge upsert methods.
 Subtask ST2.2.3.b: Add embedding write and nearest-neighbor retrieval methods.
 Subtask ST2.2.3.c: Add query wrappers used by visualization and recommendations.
 
-## Epic E3: NLP Pipeline (Fast Path)
+## Epic E3: NLP Pipeline (Fast Path) [Completed 2026-03-07]
 Context: Product value depends on near-real-time extraction. The scoping doc targets ~60-130ms for common notes.
 
-### Story S3.1: spaCy + keyphrase + relation extraction pipeline
+### Story S3.1: spaCy + keyphrase + relation extraction pipeline [Completed]
 Context: Need a deterministic baseline pipeline before adding advanced enrichment.
 
 #### Task T3.1.1: Build NLP package structure
@@ -182,7 +186,7 @@ Subtask ST3.1.3.a: Integrate spaCy `en_core_web_lg`.
 Subtask ST3.1.3.b: Integrate PyTextRank stage.
 Subtask ST3.1.3.c: Implement dependency-based SVO extraction.
 
-### Story S3.2: NLP latency budget and performance regression control
+### Story S3.2: NLP latency budget and performance regression control [Completed]
 Context: Without measurable performance guardrails, the UX can degrade silently.
 
 #### Task T3.2.1: Build performance test structure

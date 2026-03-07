@@ -19,6 +19,7 @@ class NoteRecord:
     note_id: str
     content_json: dict[str, object]
     content_text: str
+    content_hash: str
     updated_at: str
     version: int
 
@@ -92,6 +93,7 @@ class NoteRepository:
             note_id=existing.note_id,
             content_json=dict(existing.content_json),
             content_text=existing.content_text,
+            content_hash=existing.content_hash,
             updated_at=existing.updated_at,
             version=existing.version,
         )
@@ -107,6 +109,7 @@ class NoteRepository:
             note_id=existing.note_id,
             content_json=dict(existing.content_json),
             content_text=existing.content_text,
+            content_hash=existing.content_hash,
             updated_at=existing.updated_at,
             version=existing.version,
         )

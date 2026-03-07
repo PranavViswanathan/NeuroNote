@@ -1,4 +1,4 @@
-.PHONY: setup setup-web check check-web test test-api test-structure test-web test-db run run-api run-web db-up db-down db-bootstrap-extensions db-migrate db-check-extensions
+.PHONY: setup setup-web check check-web test test-api test-structure test-web test-db test-perf run run-api run-api-db run-web db-up db-down db-bootstrap-extensions db-migrate db-check-extensions
 
 UV_CACHE_DIR ?= .uv-cache
 DB_URL ?= postgresql+psycopg://neuronote:neuronote@127.0.0.1:5432/neuronote
@@ -31,10 +31,16 @@ test-web:
 test-db:
 	TEST_DATABASE_URL=$(DB_URL) UV_CACHE_DIR=$(UV_CACHE_DIR) uv run --project api --group dev pytest -c api/pyproject.toml tests/integration/test_db_extensions.py tests/integration/test_graph_vector_repository.py -q
 
+test-perf:
+	UV_CACHE_DIR=$(UV_CACHE_DIR) uv run --project api --group dev pytest -c api/pyproject.toml tests/perf -q
+
 run: run-api
 
 run-api:
 	PYTHONPATH=api/src:. UV_CACHE_DIR=$(UV_CACHE_DIR) uv run --project api --group dev uvicorn app.main:app --app-dir api/src --reload --host 127.0.0.1 --port 8000
+
+run-api-db:
+	DATABASE_URL=$(DB_URL) REQUIRE_DB_EXTENSIONS=false PYTHONPATH=api/src:. UV_CACHE_DIR=$(UV_CACHE_DIR) uv run --project api --group dev uvicorn app.main:app --app-dir api/src --reload --host 127.0.0.1 --port 8000
 
 run-web:
 	npm --prefix web run dev
