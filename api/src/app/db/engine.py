@@ -58,6 +58,8 @@ def initialize_database() -> None:
     settings = get_database_settings()
     if not settings.db_auto_create:
         return
+    if settings.database_url.startswith("postgresql"):
+        return
     Base.metadata.create_all(bind=get_engine())
 
 

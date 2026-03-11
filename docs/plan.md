@@ -25,12 +25,13 @@ Each story follows the working rule from `docs/codex.md`:
 - Background jobs: FastAPI BackgroundTasks first, Huey later
 - Product differentiation: passive, explainable semantic connections
 
-## Progress Snapshot (2026-03-07)
-- Overall status: `Epic E0 complete`; `Epic E1 complete`; `Epic E2 complete`; `Epic E3 complete`; `Epics E4-E9 not started`.
+## Progress Snapshot (2026-03-10)
+- Overall status: `Epic E0 complete`; `Epic E1 complete`; `Epic E2 complete`; `Epic E3 complete`; `Epic E4 complete`; `Epics E5-E9 not started`.
 - Completed stories: `S0.1 Repository and service skeleton`, `S0.2 Quality bar and test harnesses`.
 - Completed stories: `S1.1 TipTap editor baseline`, `S1.2 Debounced autosave and processing triggers`.
 - Completed stories: `S2.1 Core relational schema for notes and blocks`, `S2.2 Graph and vector extension activation`.
 - Completed stories: `S3.1 spaCy + keyphrase + relation extraction pipeline`, `S3.2 NLP latency budget and performance regression control`.
+- Completed stories: `S4.1 Five-layer resolution funnel`, `S4.2 Alias table persistence and feedback loop`.
 - Validation evidence:
   - `make setup` completed with `uv` and created `api/.venv`.
   - `make check` passed (`ruff`, `mypy`).
@@ -44,7 +45,12 @@ Each story follows the working rule from `docs/codex.md`:
   - `make db-check-extensions` passes (`AGE and pgvector checks passed`).
   - Added E3 NLP package (`app/nlp`), note processing service, background job lifecycle transitions, note-version job coalescing, and processing API integration tests.
   - Added E3 perf fixtures (`200/800/2000` words) and latency guardrail tests under `tests/perf`.
-  - Current Python validation set: `50 passed, 4 skipped` (`integration + unit + perf`).
+  - Current Python validation set: `79 passed, 4 skipped` (`integration + unit`).
+  - Added E4 resolver package (`app/nlp/resolution`) with normalization, abbreviation, fuzzy, embedding, and layered resolver orchestration.
+  - Added E4 alias persistence (`entity_aliases`) model/repository, alias bootstrap import entrypoint, and API routes (`confirm`, `calibration`, `resolve-preview`).
+  - Added E4 tests across unit/integration/schema/structure.
+  - Added permanent migration/runtime hardening (2026-03-10): `DB_AUTO_CREATE` defaults to `false`, PostgreSQL startup auto-create is disabled, and migration `20260307_0002` is idempotent.
+  - Added processing transaction-scope hardening (2026-03-10): fixed `A transaction is already begun on this Session.` by using one explicit transaction scope.
 - Noted environment behavior: shell `VIRTUAL_ENV=.venv` differs from project `api/.venv`; `uv` ignores the shell env and uses project env correctly.
   - Local extension profile now builds via `infra/db/Dockerfile` and exposes both `age` and `vector`.
   - Current hardening validation after editor/process alignment: `48 passed, 4 skipped` (Python `integration + unit`) and `16 passed` (web tests).
@@ -62,6 +68,18 @@ Each story follows the working rule from `docs/codex.md`:
 - 2026-03-07: Processing job coalescing uses persisted note hash as source of truth.
   - Rationale: processing already executes on DB snapshot; dedupe key must match persisted snapshot identity.
   - Impacted areas: `api/src/app/routes/process.py`, `tests/integration/test_process_api.py`.
+- 2026-03-07: Entity resolution uses deterministic-first layered matching before semantic fallback.
+  - Rationale: prioritize low-cost/high-precision matching and only use expensive similarity when needed.
+  - Impacted areas: `api/src/app/nlp/resolution/*`, `tests/unit/test_entity_resolver.py`.
+- 2026-03-07: Alias conflict policy is confidence-first with `user_confirmed` tie-breaker.
+  - Rationale: preserve stable canonical mappings while allowing higher-confidence corrections.
+  - Impacted areas: `api/src/app/db/repositories/entity_alias_repository.py`, `tests/unit/test_entity_alias_repository.py`.
+- 2026-03-10: Database schema ownership is migration-first in PostgreSQL environments.
+  - Rationale: prevent runtime `create_all` from racing with Alembic and causing duplicate-table failures.
+  - Impacted areas: `api/src/app/db/config.py`, `api/src/app/db/engine.py`, `api/alembic/versions/20260307_0002_entity_aliases.py`.
+- 2026-03-10: Note processing uses a single explicit transaction for alias reads + graph writes.
+  - Rationale: avoid nested/implicit transaction collisions in SQLAlchemy session lifecycle.
+  - Impacted areas: `api/src/app/services/note_processing_service.py`, `tests/unit/test_note_processing_service.py`.
 
 ## Epic E0: Project Foundations and Delivery Guardrails [Completed 2026-03-01]
 Context: The scoping doc assumes a multi-service system. Without shared conventions, implementation speed will collapse under integration drift. This epic creates the base structure, contract boundaries, and CI quality gates so all later epics are reliable.
@@ -219,10 +237,10 @@ Subtask ST3.2.3.a: Add selective pipeline disabling for low-resource environment
 Subtask ST3.2.3.b: Add reusable loaded-model singleton lifecycle.
 Subtask ST3.2.3.c: Add metrics counters and timers around each stage.
 
-## Epic E4: Entity Resolution and Canonicalization
+## Epic E4: Entity Resolution and Canonicalization [Completed 2026-03-07]
 Context: Graph usefulness depends on deduplicating aliases and near-duplicates into canonical entities.
 
-### Story S4.1: Five-layer resolution funnel
+### Story S4.1: Five-layer resolution funnel [Completed]
 Context: The scoping doc recommends escalating from cheap deterministic checks to expensive semantic checks.
 
 #### Task T4.1.1: Build resolver layer structure
@@ -241,7 +259,7 @@ Subtask ST4.1.3.a: Chain layers with short-circuiting on high-confidence matches
 Subtask ST4.1.3.b: Emit confidence, matched layer, and canonical target metadata.
 Subtask ST4.1.3.c: Expose unresolved entities for optional user confirmation flow.
 
-### Story S4.2: Alias table persistence and feedback loop
+### Story S4.2: Alias table persistence and feedback loop [Completed]
 Context: Persistent alias memory turns one-time decisions into future instant matches.
 
 #### Task T4.2.1: Build alias persistence structure

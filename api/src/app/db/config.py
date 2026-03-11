@@ -25,7 +25,7 @@ def get_database_settings() -> DatabaseSettings:
     return DatabaseSettings(
         database_url=os.getenv("DATABASE_URL", DEFAULT_DATABASE_URL),
         db_echo=_as_bool(os.getenv("DB_ECHO"), default=False),
-        db_auto_create=_as_bool(os.getenv("DB_AUTO_CREATE"), default=True),
+        db_auto_create=_as_bool(os.getenv("DB_AUTO_CREATE"), default=False),
         require_postgres_extensions=_as_bool(
             os.getenv("REQUIRE_DB_EXTENSIONS"),
             default=False,

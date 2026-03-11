@@ -35,6 +35,11 @@ This is the default way to run NeuroNote now. API commands still use `uv`, but i
 7. Stop stack:
    - `make compose-down`
 
+Schema ownership is migration-first:
+- `DB_AUTO_CREATE=false` in compose API runtime.
+- PostgreSQL auto-create is disabled in app startup logic.
+- Migration `20260307_0002` is idempotent for pre-existing `entity_aliases` tables.
+
 ### Common Commands
 - API checks: `make compose-check`
 - API tests: `make compose-test`
@@ -57,13 +62,46 @@ Use this only if you explicitly want a non-container local run.
 3. `make test`
 4. `make run-api-db` and `make run-web`
 
+`make run-api` still enables sqlite auto-create for quick local-only bootstrapping.
+
 ## Validate Processing Flow
 1. Save a note through API:
-   - `curl -X PUT http://127.0.0.1:8000/v1/notes/demo-note -H 'Content-Type: application/json' -d '{"note_id":"demo-note","content_json":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Machine Learning improves Graph Reasoning across Notes"}]}]},"content_text":"Machine Learning improves Graph Reasoning across Notes","updated_at":"2026-03-07T12:00:00Z"}'`
+   - Use heredoc payload to avoid shell-escaped JSON issues:
+```bash
+curl -sS -X PUT http://127.0.0.1:8000/v1/notes/demo-note \
+  -H 'Content-Type: application/json' \
+  --data-binary @- <<'JSON'
+{"note_id":"demo-note","content_json":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Machine Learning improves Graph Reasoning across Notes"}]}]},"content_text":"Machine Learning improves Graph Reasoning across Notes","updated_at":"2026-03-07T12:00:00Z"}
+JSON
+```
 2. Trigger processing:
-   - `curl -X POST http://127.0.0.1:8000/v1/process-note -H 'Content-Type: application/json' -d '{"note_id":"demo-note","content_text":"Machine Learning improves Graph Reasoning across Notes","content_hash":"<sha256_of_content_text>","updated_at":"2026-03-07T12:00:00Z"}'`
-   - Hash helper: `printf 'Machine Learning improves Graph Reasoning across Notes' | shasum -a 256`
+   - Hash helper: `HASH=$(printf 'Machine Learning improves Graph Reasoning across Notes' | shasum -a 256 | awk '{print $1}')`
+```bash
+curl -sS -X POST http://127.0.0.1:8000/v1/process-note \
+  -H 'Content-Type: application/json' \
+  -d "{\"note_id\":\"demo-note\",\"content_text\":\"Machine Learning improves Graph Reasoning across Notes\",\"content_hash\":\"$HASH\",\"updated_at\":\"2026-03-07T12:00:00Z\"}"
+```
 3. Poll status:
    - `curl http://127.0.0.1:8000/v1/process-status/<job_id>`
 4. Expected status flow:
    - `queued -> running -> completed` (or `failed` with `error` populated).
+
+## Validate Entity Resolution Flow
+1. Confirm a canonical alias:
+```bash
+curl -sS -X POST http://127.0.0.1:8000/v1/entity-aliases/confirm \
+  -H 'Content-Type: application/json' \
+  --data-binary @- <<'JSON'
+{"alias_text":"ML","canonical_entity_id":"concept-machine-learning","canonical_name":"Machine Learning","confidence":0.95}
+JSON
+```
+2. Preview resolution output (resolved + unresolved):
+```bash
+curl -sS -X POST http://127.0.0.1:8000/v1/entity-aliases/resolve-preview \
+  -H 'Content-Type: application/json' \
+  --data-binary @- <<'JSON'
+{"entities":[{"entity_id":"entity-1","text":"ML","label":"acronym","confidence":0.8},{"entity_id":"entity-2","text":"xqzv_123","label":"acronym","confidence":0.4}]}
+JSON
+```
+3. Check calibration metrics:
+   - `curl http://127.0.0.1:8000/v1/entity-aliases/calibration`

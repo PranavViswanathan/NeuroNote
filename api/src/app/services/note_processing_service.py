@@ -6,9 +6,11 @@ import re
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.engine import get_session_factory
+from app.db.repositories.entity_alias_repository import EntityAliasRepository
 from app.db.repositories.graph_repository import GraphRepository
 from app.db.repositories.note_repository import NoteRepository
 from app.nlp.pipeline import NoteNlpPipeline
+from app.nlp.resolution.resolver import CanonicalAlias, EntityResolver
 from shared.contracts.python.v1.process import ProcessNoteRequest
 
 _DEFAULT_GRAPH_NAME = "neuronote"
@@ -58,6 +60,25 @@ class NoteProcessingService:
         normalized = _RELATION_TYPE_PATTERN.sub("_", raw_predicate.upper()).strip("_")
         return normalized or "RELATED_TO"
 
+    def _build_resolver(self, repository: EntityAliasRepository) -> EntityResolver:
+        alias_records = repository.list_alias_index()
+        alias_index = {
+            alias_text: CanonicalAlias(
+                canonical_entity_id=record.canonical_entity_id,
+                canonical_name=record.canonical_name,
+            )
+            for alias_text, record in alias_records.items()
+        }
+        abbreviation_index = {
+            alias_text.replace(" ", ""): record.canonical_name
+            for alias_text, record in alias_records.items()
+            if " " not in alias_text and 1 < len(alias_text) <= 10
+        }
+        return EntityResolver(
+            alias_index=alias_index,
+            abbreviation_index=abbreviation_index,
+        )
+
     def _persist_graph_and_vector(self, *, snapshot: ProcessedNoteSnapshot) -> None:
         result = self._pipeline.extract(
             note_id=snapshot.note_id,
@@ -71,14 +92,33 @@ class NoteProcessingService:
 
             repository = GraphRepository(session)
             with session.begin():
+                alias_repository = EntityAliasRepository(session)
+                resolution_batch = self._build_resolver(alias_repository).resolve(result.entities)
+                resolved_index = {
+                    item.source_entity_id: item
+                    for item in resolution_batch.resolved
+                }
+
                 for entity in result.entities:
+                    resolved = resolved_index.get(entity.entity_id)
+                    canonical_id = (
+                        resolved.canonical_entity_id if resolved is not None else entity.entity_id
+                    )
+                    canonical_name = (
+                        resolved.canonical_name if resolved is not None else entity.text
+                    )
+                    canonical_confidence = (
+                        max(entity.confidence, resolved.confidence)
+                        if resolved is not None
+                        else entity.confidence
+                    )
                     repository.upsert_node(
                         label="Entity",
-                        node_id=entity.entity_id,
+                        node_id=canonical_id,
                         properties={
-                            "name": entity.text,
+                            "name": canonical_name,
                             "kind": entity.label,
-                            "confidence": entity.confidence,
+                            "confidence": canonical_confidence,
                             "source_note_id": snapshot.note_id,
                         },
                         graph_name=self._graph_name,

@@ -23,3 +23,17 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
   - Added `web` service to compose stack for browser-level local validation from one command.
   - Added configurable port bindings (`DB_PORT`, `API_PORT`, `WEB_PORT`) to avoid host port conflicts.
   - Updated documentation to make compose-first workflow the default run/check/test path.
+
+## 2026-03-07 (Epic E4 Delivery Notes)
+- Added `entity_aliases` persistence for canonical mapping memory and conflict handling.
+- Added resolver preview API endpoint to expose unresolved entities for optional confirmation flow.
+- Added alias bootstrap utility (`api/src/app/db/bootstrap_entity_aliases.py`) for seed imports.
+
+## 2026-03-10 (Permanent Migration Safety)
+- Set `DB_AUTO_CREATE` default to `false` to favor migration-owned schema lifecycle.
+- Added PostgreSQL startup guard so `initialize_database()` does not run `create_all` for Postgres URLs.
+- Made Alembic revision `20260307_0002` idempotent when `entity_aliases` and indexes already exist.
+
+## 2026-03-10 (Processing Transaction Safety)
+- Fixed `NoteProcessingService` transaction scope so alias index reads and graph writes execute under one explicit transaction.
+- Added unit regression test for the `A transaction is already begun on this Session.` failure path.

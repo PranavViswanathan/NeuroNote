@@ -7,6 +7,7 @@ import pytest
 from app.db.engine import get_session_factory
 from app.db.repositories.note_repository import NoteRepository
 from app.nlp.types import NoteExtractionResult
+from app.services import note_processing_service as note_processing_module
 from app.services.note_processing_service import NoteNotFoundError, NoteProcessingService
 from shared.contracts.python.v1.process import ProcessNoteRequest
 
@@ -79,3 +80,50 @@ def test_process_note_uses_latest_persisted_note_snapshot(configured_db: None) -
     )
 
     assert pipeline.calls == [(note_id, persisted_text, persisted_hash)]
+
+
+def test_process_note_does_not_raise_transaction_error_when_postgres_path_is_used(
+    configured_db: None,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    note_id = "note-process-transaction-path"
+    persisted_text = "Knowledge Graphs connect machine learning concepts"
+
+    session_factory = get_session_factory()
+    with session_factory() as session:
+        repository = NoteRepository(session)
+        with session.begin():
+            repository.upsert_note(
+                note_id=note_id,
+                content_json={"type": "doc", "content": []},
+                content_text=persisted_text,
+                updated_at="2026-03-10T12:01:00Z",
+            )
+
+    class _FakeGraphRepository:
+        def __init__(self, _session) -> None:
+            return
+
+        def upsert_node(self, **_kwargs) -> None:
+            return
+
+        def upsert_edge(self, **_kwargs) -> None:
+            return
+
+        def upsert_embedding(self, **_kwargs) -> None:
+            return
+
+    pipeline = _FakePipeline()
+    service = NoteProcessingService(session_factory=session_factory, pipeline=pipeline)
+
+    monkeypatch.setattr(note_processing_module, "GraphRepository", _FakeGraphRepository)
+    monkeypatch.setattr(service, "_is_postgres", lambda _session: True)
+
+    service.process_note(
+        ProcessNoteRequest(
+            note_id=note_id,
+            content_text="stale payload",
+            content_hash="stale-hash",
+            updated_at="2026-03-10T12:02:00Z",
+        )
+    )

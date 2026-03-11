@@ -51,6 +51,7 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://neuronote:neuronote@db:5432/neuronote
       REQUIRE_DB_EXTENSIONS: "false"
+      DB_AUTO_CREATE: "false"
       UV_PROJECT_ENVIRONMENT: /tmp/neuronote-api-venv
       UV_CACHE_DIR: /tmp/uv-cache
       PYTHONPATH: api/src:.

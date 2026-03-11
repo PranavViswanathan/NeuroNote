@@ -39,7 +39,7 @@ test-perf:
 run: run-api
 
 run-api:
-	PYTHONPATH=api/src:. UV_CACHE_DIR=$(UV_CACHE_DIR) uv run --project api --group dev uvicorn app.main:app --app-dir api/src --reload --host 127.0.0.1 --port 8000
+	DB_AUTO_CREATE=true PYTHONPATH=api/src:. UV_CACHE_DIR=$(UV_CACHE_DIR) uv run --project api --group dev uvicorn app.main:app --app-dir api/src --reload --host 127.0.0.1 --port 8000
 
 run-api-db:
 	DATABASE_URL=$(DB_URL) REQUIRE_DB_EXTENSIONS=false PYTHONPATH=api/src:. UV_CACHE_DIR=$(UV_CACHE_DIR) uv run --project api --group dev uvicorn app.main:app --app-dir api/src --reload --host 127.0.0.1 --port 8000
