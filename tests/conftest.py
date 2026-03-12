@@ -33,13 +33,16 @@ def configured_db(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Iterator[N
     monkeypatch.setenv("REQUIRE_DB_EXTENSIONS", "false")
 
     from app.db.engine import initialize_database, reset_engine
+    from app.core.backfill_store import reset_backfill_status
     from app.core.job_store import reset_job_store
 
     reset_engine()
     reset_job_store()
+    reset_backfill_status()
     initialize_database()
     yield
     reset_job_store()
+    reset_backfill_status()
     reset_engine()
 
 

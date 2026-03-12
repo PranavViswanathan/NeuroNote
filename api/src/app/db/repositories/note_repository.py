@@ -17,6 +17,8 @@ DEFAULT_SUBJECT_NAME = "Inbox"
 @dataclass(slots=True)
 class NoteRecord:
     note_id: str
+    subject_id: str
+    note_title: str
     content_json: dict[str, object]
     content_text: str
     content_hash: str
@@ -27,6 +29,7 @@ class NoteRecord:
 @dataclass(slots=True)
 class NoteSummaryRecord:
     note_id: str
+    note_title: str
     content_text: str
     updated_at: str
     version: int
@@ -53,6 +56,7 @@ class NoteRepository:
         self,
         *,
         note_id: str,
+        note_title: str,
         content_json: dict[str, object],
         content_text: str,
         updated_at: str,
@@ -63,11 +67,13 @@ class NoteRepository:
             select(Note).where(Note.note_id == note_id),
         ).scalar_one_or_none()
 
-        content_hash = hashlib.sha256(content_text.encode("utf-8")).hexdigest()
+        combined_for_hash = f"{note_title}\n\n{content_text}"
+        content_hash = hashlib.sha256(combined_for_hash.encode("utf-8")).hexdigest()
         if existing is None:
             existing = Note(
                 note_id=note_id,
                 subject_id=DEFAULT_SUBJECT_ID,
+                note_title=note_title,
                 content_json=content_json,
                 content_text=content_text,
                 content_hash=content_hash,
@@ -76,6 +82,7 @@ class NoteRepository:
             )
             self._session.add(existing)
         else:
+            existing.note_title = note_title
             existing.content_json = content_json
             existing.content_text = content_text
             existing.content_hash = content_hash
@@ -91,6 +98,8 @@ class NoteRepository:
 
         return NoteRecord(
             note_id=existing.note_id,
+            subject_id=existing.subject_id,
+            note_title=existing.note_title,
             content_json=dict(existing.content_json),
             content_text=existing.content_text,
             content_hash=existing.content_hash,
@@ -107,6 +116,8 @@ class NoteRepository:
 
         return NoteRecord(
             note_id=existing.note_id,
+            subject_id=existing.subject_id,
+            note_title=existing.note_title,
             content_json=dict(existing.content_json),
             content_text=existing.content_text,
             content_hash=existing.content_hash,
@@ -129,6 +140,7 @@ class NoteRepository:
         items = [
             NoteSummaryRecord(
                 note_id=row.note_id,
+                note_title=row.note_title,
                 content_text=row.content_text,
                 updated_at=row.updated_at,
                 version=row.version,
@@ -136,6 +148,12 @@ class NoteRepository:
             for row in rows
         ]
         return items, int(total)
+
+    def list_note_ids(self) -> list[str]:
+        rows = self._session.execute(
+            select(Note.note_id).order_by(Note.note_id.asc()),
+        ).all()
+        return [str(row[0]) for row in rows]
 
     def delete_note(self, note_id: str) -> bool:
         existing = self._session.get(Note, note_id)

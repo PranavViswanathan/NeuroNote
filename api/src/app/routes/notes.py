@@ -38,6 +38,7 @@ def put_note(
     with session.begin():
         record = repository.upsert_note(
             note_id=payload.note_id,
+            note_title=payload.note_title,
             content_json=payload.content_json,
             content_text=payload.content_text,
             updated_at=payload.updated_at,
@@ -62,6 +63,7 @@ def fetch_note(
         )
     return GetNoteResponse(
         note_id=record.note_id,
+        note_title=record.note_title,
         content_json=record.content_json,
         content_text=record.content_text,
         updated_at=record.updated_at,
@@ -80,6 +82,7 @@ def list_notes(
         items=[
             NoteSummary(
                 note_id=item.note_id,
+                note_title=item.note_title,
                 content_text=item.content_text,
                 updated_at=item.updated_at,
                 version=item.version,

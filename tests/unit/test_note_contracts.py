@@ -19,6 +19,7 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_save_note_request_accepts_valid_payload() -> None:
     request = SaveNoteRequest(
         note_id="note-1",
+        note_title="Graph foundations",
         content_json={"type": "doc", "content": []},
         content_text="Knowledge graph note",
         updated_at="2026-03-01T10:00:00Z",
@@ -30,6 +31,7 @@ def test_save_note_request_rejects_empty_note_id() -> None:
     with pytest.raises(ValidationError):
         SaveNoteRequest(
             note_id="",
+            note_title="Graph foundations",
             content_json={"type": "doc", "content": []},
             content_text="Knowledge graph note",
             updated_at="2026-03-01T10:00:00Z",
@@ -48,6 +50,7 @@ def test_save_note_response_shape() -> None:
 def test_get_note_response_shape() -> None:
     response = GetNoteResponse(
         note_id="note-1",
+        note_title="Graph foundations",
         content_json={"type": "doc", "content": []},
         content_text="Knowledge graph note",
         updated_at="2026-03-01T10:00:00Z",
@@ -61,6 +64,7 @@ def test_list_notes_response_shape() -> None:
         items=[
             NoteSummary(
                 note_id="note-1",
+                note_title="Graph foundations",
                 content_text="Knowledge graph note",
                 updated_at="2026-03-01T10:00:00Z",
                 version=1,
@@ -76,6 +80,7 @@ def test_ts_note_contract_contains_required_fields() -> None:
     required_tokens = [
         "interface SaveNoteRequest",
         "note_id: string",
+        "note_title: string",
         "content_json: Record<string, unknown>",
         "content_text: string",
         "updated_at: string",

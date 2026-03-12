@@ -14,6 +14,8 @@ def test_core_tables_exist(configured_db: None) -> None:
 
 def test_foreign_keys_and_indexes_exist(configured_db: None) -> None:
     inspector = inspect(get_engine())
+    note_columns = {column["name"] for column in inspector.get_columns("notes")}
+    assert "note_title" in note_columns
 
     note_fks = inspector.get_foreign_keys("notes")
     assert any(

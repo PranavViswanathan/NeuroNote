@@ -37,3 +37,16 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
 ## 2026-03-10 (Processing Transaction Safety)
 - Fixed `NoteProcessingService` transaction scope so alias index reads and graph writes execute under one explicit transaction.
 - Added unit regression test for the `A transaction is already begun on this Session.` failure path.
+
+## 2026-03-11 (Epic E5 + Title Flow Delivery Notes)
+- Added `note_title` to note persistence, contracts, API payloads, and editor autosave flow.
+- Added idempotent migration `20260311_0003_note_title` for existing databases.
+- Added graph sync delete-and-replace by `source_note_id` and typed graph-edge writing.
+- Added startup async backfill service and `/v1/backfill-status` API route.
+- Added dedicated unit/integration coverage for graph sync relation collapse, backfill status, startup backfill async behavior, and note-title migration.
+- Local web test runtime still has an esbuild platform mismatch in `web/node_modules`; validated frontend tests in compose runtime (`docker compose ... run --rm web npm run test`).
+
+## 2026-03-12 (Embedding Schema Safety)
+- Fixed graph embedding persistence to always target `public.note_embeddings` instead of relying on session `search_path`.
+- Added compatibility copy-forward from `ag_catalog.note_embeddings` to `public.note_embeddings` inside repository table bootstrap.
+- Added regression test ensuring note embeddings land in `public` schema.

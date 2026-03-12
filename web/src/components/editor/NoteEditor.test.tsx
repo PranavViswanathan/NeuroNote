@@ -75,6 +75,7 @@ describe("NoteEditor", () => {
   it("loads existing note content into the editor", async () => {
     vi.mocked(getNote).mockResolvedValue({
       note_id: "note-1",
+      note_title: "Loaded title",
       content_json: {
         type: "doc",
         content: [
@@ -100,11 +101,13 @@ describe("NoteEditor", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("TipTap editor")).toHaveValue("Loaded text");
     });
+    expect(screen.getByLabelText("Note title")).toHaveValue("Loaded title");
   });
 
   it("marks note dirty on edit and autosaves after debounce", async () => {
     vi.mocked(getNote).mockResolvedValue({
       note_id: "note-2",
+      note_title: "Initial title",
       content_json: { type: "doc", content: [] },
       content_text: "",
       updated_at: "2026-03-01T13:01:00Z",
@@ -144,9 +147,53 @@ describe("NoteEditor", () => {
     await waitFor(() => expect(queueNoteProcessing).toHaveBeenCalledTimes(1));
   });
 
+  it("autosaves title updates", async () => {
+    vi.mocked(getNote).mockResolvedValue({
+      note_id: "note-title-1",
+      note_title: "Old title",
+      content_json: { type: "doc", content: [] },
+      content_text: "",
+      updated_at: "2026-03-01T13:01:00Z",
+      version: 1,
+    });
+    vi.mocked(saveNote).mockResolvedValue({
+      note_id: "note-title-1",
+      saved_at: "2026-03-01T13:01:01Z",
+      version: 2,
+    });
+    vi.mocked(queueNoteProcessing).mockResolvedValue({
+      job_id: "job-title-1",
+      status: "queued",
+    });
+
+    render(
+      <NoteEditor
+        noteId="note-title-1"
+        baseUrl="http://localhost:8000"
+        autosaveDebounceMs={10}
+        processDebounceMs={30}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Note title")).not.toBeDisabled(),
+    );
+
+    fireEvent.change(screen.getByLabelText("Note title"), {
+      target: { value: "Updated title" },
+    });
+    expect(screen.getByTestId("dirty-flag")).toHaveTextContent("dirty");
+
+    await waitFor(() => expect(saveNote).toHaveBeenCalledTimes(1));
+    expect(vi.mocked(saveNote).mock.calls[0]?.[1]).toMatchObject({
+      note_title: "Updated title",
+    });
+  });
+
   it("surfaces save errors", async () => {
     vi.mocked(getNote).mockResolvedValue({
       note_id: "note-3",
+      note_title: "Title 3",
       content_json: { type: "doc", content: [] },
       content_text: "",
       updated_at: "2026-03-01T13:02:00Z",

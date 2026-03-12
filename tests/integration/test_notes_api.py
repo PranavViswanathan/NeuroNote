@@ -6,6 +6,7 @@ from fastapi.testclient import TestClient
 def _payload(note_id: str, text: str, updated_at: str) -> dict[str, object]:
     return {
         "note_id": note_id,
+        "note_title": f"Title for {note_id}",
         "content_json": {
             "type": "doc",
             "content": [
@@ -44,6 +45,7 @@ def test_get_note_returns_saved_payload(client: TestClient) -> None:
     assert response.status_code == 200
     body = response.json()
     assert body["note_id"] == "note-fetch"
+    assert body["note_title"] == "Title for note-fetch"
     assert body["content_text"] == "Fetch text"
     assert body["version"] == 1
 
@@ -66,6 +68,7 @@ def test_put_note_rejects_invalid_payload(client: TestClient) -> None:
         "/v1/notes/note-invalid",
         json={
             "note_id": "",
+            "note_title": "",
             "content_json": {},
             "content_text": "",
             "updated_at": "",
@@ -91,6 +94,7 @@ def test_list_notes_returns_saved_items_with_total(client: TestClient) -> None:
     assert body["total"] == 2
     note_ids = {item["note_id"] for item in body["items"]}
     assert note_ids == {"note-list-1", "note-list-2"}
+    assert all(isinstance(item["note_title"], str) for item in body["items"])
 
 
 def test_delete_note_removes_record(client: TestClient) -> None:

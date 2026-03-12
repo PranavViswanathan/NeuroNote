@@ -28,6 +28,7 @@ interface NoteEditorProps {
 }
 
 interface NoteSnapshot {
+  noteTitle: string;
   documentJson: EditorDoc;
   plainText: string;
   updatedAt: string;
@@ -48,6 +49,7 @@ export function NoteEditor({
   processDebounceMs = 3000,
 }: NoteEditorProps) {
   const [documentJson, setDocumentJson] = useState<EditorDoc>(createEmptyEditorDoc());
+  const [noteTitle, setNoteTitle] = useState("Untitled");
   const [plainText, setPlainText] = useState("");
   const [dirty, setDirty] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
@@ -56,6 +58,7 @@ export function NoteEditor({
   const [updatedAt, setUpdatedAt] = useState(new Date().toISOString());
 
   const latestSnapshotRef = useRef<NoteSnapshot>({
+    noteTitle: "Untitled",
     documentJson: createEmptyEditorDoc(),
     plainText: "",
     updatedAt,
@@ -65,8 +68,8 @@ export function NoteEditor({
   const lifecycleRef = useRef<ReturnType<typeof createNoteLifecycleController> | null>(null);
 
   useEffect(() => {
-    latestSnapshotRef.current = { documentJson, plainText, updatedAt };
-  }, [documentJson, plainText, updatedAt]);
+    latestSnapshotRef.current = { noteTitle, documentJson, plainText, updatedAt };
+  }, [noteTitle, documentJson, plainText, updatedAt]);
 
   useEffect(() => {
     let isMounted = true;
@@ -80,6 +83,8 @@ export function NoteEditor({
 
         const nextDoc = coerceEditorDoc(note.content_json);
         const nextText = note.content_text || extractPlainText(nextDoc);
+        const nextTitle = note.note_title || "Untitled";
+        setNoteTitle(nextTitle);
         setDocumentJson(nextDoc);
         setPlainText(nextText);
         setUpdatedAt(note.updated_at);
@@ -88,6 +93,7 @@ export function NoteEditor({
         if (!isMounted) {
           return;
         }
+        setNoteTitle("Untitled");
         setDocumentJson(createEmptyEditorDoc());
         setPlainText("");
         setUpdatedAt(new Date().toISOString());
@@ -113,6 +119,7 @@ export function NoteEditor({
     try {
       await saveNote(baseUrl, {
         note_id: noteId,
+        note_title: snapshot.noteTitle.trim() || "Untitled",
         content_json: snapshot.documentJson,
         content_text: snapshot.plainText || " ",
         updated_at: snapshot.updatedAt,
@@ -136,10 +143,11 @@ export function NoteEditor({
 
     try {
       setProcessStatus("queued");
+      const combinedText = `${snapshot.noteTitle.trim()}\n\n${snapshot.plainText}`.trim();
       const queued = await queueNoteProcessing(baseUrl, {
         note_id: noteId,
-        content_text: snapshot.plainText,
-        content_hash: makeHash(snapshot.plainText),
+        content_text: combinedText,
+        content_hash: makeHash(combinedText),
         updated_at: snapshot.updatedAt,
       });
       setProcessStatus(queued.status);
@@ -198,9 +206,31 @@ export function NoteEditor({
     lifecycleRef.current?.onEdit();
   }, []);
 
+  const handleTitleChange = useCallback(
+    (nextTitle: string) => {
+      const nextUpdatedAt = new Date().toISOString();
+      setNoteTitle(nextTitle);
+      setUpdatedAt(nextUpdatedAt);
+      setDirty(true);
+      setSaveStatus("idle");
+      lifecycleRef.current?.onEdit();
+    },
+    [],
+  );
+
   return (
     <section data-testid="note-editor">
       <EditorToolbar dirty={dirty} saveStatus={saveStatus} processStatus={processStatus} />
+      <label>
+        <span className="sr-only">Note title</span>
+        <input
+          aria-label="Note title"
+          type="text"
+          value={noteTitle}
+          onChange={(event) => handleTitleChange(event.target.value)}
+          disabled={isLoading}
+        />
+      </label>
       <TipTapEditor
         value={documentJson}
         onUpdate={handleEditorUpdate}

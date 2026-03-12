@@ -23,6 +23,7 @@ class Note(Base):
         nullable=False,
         index=True,
     )
+    note_title: Mapped[str] = mapped_column(String(255), nullable=False, default="Untitled")
     content_json: Mapped[dict[str, object]] = mapped_column(JSON, nullable=False)
     content_text: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)

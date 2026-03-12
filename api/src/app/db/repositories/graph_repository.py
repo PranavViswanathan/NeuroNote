@@ -98,16 +98,40 @@ class GraphRepository:
         confidence: float,
         graph_name: str = "neuronote",
     ) -> None:
+        self.upsert_typed_edge(
+            source_label="Concept",
+            source_id=source_id,
+            target_label="Concept",
+            target_id=target_id,
+            relation_type=relation_type,
+            properties={"confidence": float(confidence)},
+            graph_name=graph_name,
+        )
+
+    def upsert_typed_edge(
+        self,
+        *,
+        source_label: str,
+        source_id: str,
+        target_label: str,
+        target_id: str,
+        relation_type: str,
+        properties: dict[str, object] | None = None,
+        graph_name: str = "neuronote",
+    ) -> None:
+        self._validate_label(source_label)
+        self._validate_label(target_label)
         self._validate_label(relation_type)
         self.ensure_graph_exists(graph_name=graph_name)
 
         source_id_json = json.dumps(source_id)
         target_id_json = json.dumps(target_id)
+        relation_properties = self._cypher_map_literal(properties or {})
         query = f"""
-        MERGE (a:Concept {{id: {source_id_json}}})
-        MERGE (b:Concept {{id: {target_id_json}}})
+        MERGE (a:{source_label} {{id: {source_id_json}}})
+        MERGE (b:{target_label} {{id: {target_id_json}}})
         MERGE (a)-[r:{relation_type}]->(b)
-        SET r.confidence = {float(confidence)}
+        SET r += {relation_properties}
         RETURN r
         """
 
@@ -120,6 +144,47 @@ class GraphRepository:
                 % (graph_name, query)
             )
         ).first()
+
+    def delete_source_artifacts(
+        self,
+        *,
+        source_note_id: str,
+        graph_name: str = "neuronote",
+    ) -> None:
+        self.ensure_graph_exists(graph_name=graph_name)
+        source_json = json.dumps(source_note_id)
+
+        delete_edges_query = f"""
+        MATCH ()-[r]-()
+        WHERE r.source_note_id = {source_json}
+        DELETE r
+        RETURN 1
+        """
+        self._session.execute(
+            text(
+                """
+                SELECT *
+                FROM ag_catalog.cypher('%s', $$ %s $$) AS (value ag_catalog.agtype)
+                """
+                % (graph_name, delete_edges_query)
+            )
+        ).all()
+
+        delete_nodes_query = f"""
+        MATCH (n)
+        WHERE n.source_note_id = {source_json}
+        DETACH DELETE n
+        RETURN 1
+        """
+        self._session.execute(
+            text(
+                """
+                SELECT *
+                FROM ag_catalog.cypher('%s', $$ %s $$) AS (value ag_catalog.agtype)
+                """
+                % (graph_name, delete_nodes_query)
+            )
+        ).all()
 
     def fetch_local_neighborhood(
         self,
@@ -157,7 +222,7 @@ class GraphRepository:
         self._session.execute(
             text(
                 """
-                CREATE TABLE IF NOT EXISTS note_embeddings (
+                CREATE TABLE IF NOT EXISTS public.note_embeddings (
                     embedding_id BIGSERIAL PRIMARY KEY,
                     item_id TEXT NOT NULL,
                     item_type TEXT NOT NULL,
@@ -165,6 +230,25 @@ class GraphRepository:
                     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                     UNIQUE (item_id, item_type)
                 )
+                """
+            )
+        )
+        self._session.execute(
+            text(
+                """
+                DO $$
+                BEGIN
+                    IF to_regclass('ag_catalog.note_embeddings') IS NOT NULL THEN
+                        INSERT INTO public.note_embeddings (item_id, item_type, embedding, created_at)
+                        SELECT item_id, item_type, embedding, created_at
+                        FROM ag_catalog.note_embeddings
+                        ON CONFLICT (item_id, item_type)
+                        DO UPDATE SET
+                            embedding = EXCLUDED.embedding,
+                            created_at = EXCLUDED.created_at;
+                    END IF;
+                END
+                $$;
                 """
             )
         )
@@ -185,7 +269,7 @@ class GraphRepository:
         self._session.execute(
             text(
                 """
-                INSERT INTO note_embeddings (item_id, item_type, embedding)
+                INSERT INTO public.note_embeddings (item_id, item_type, embedding)
                 VALUES (:item_id, :item_type, CAST(:embedding AS vector(384)))
                 ON CONFLICT (item_id, item_type)
                 DO UPDATE SET embedding = EXCLUDED.embedding, created_at = NOW()
@@ -217,7 +301,7 @@ class GraphRepository:
             text(
                 """
                 SELECT item_id, embedding <=> CAST(:query_embedding AS vector(384)) AS distance
-                FROM note_embeddings
+                FROM public.note_embeddings
                 WHERE item_type = :item_type
                 ORDER BY embedding <=> CAST(:query_embedding AS vector(384))
                 LIMIT :limit

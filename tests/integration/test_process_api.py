@@ -6,9 +6,16 @@ import time
 from fastapi.testclient import TestClient
 
 
-def _note_payload(note_id: str, text: str, updated_at: str) -> dict[str, object]:
+def _note_payload(
+    note_id: str,
+    text: str,
+    updated_at: str,
+    *,
+    note_title: str | None = None,
+) -> dict[str, object]:
     return {
         "note_id": note_id,
+        "note_title": note_title or f"Title for {note_id}",
         "content_json": {
             "type": "doc",
             "content": [
@@ -120,6 +127,54 @@ def test_process_note_queues_new_job_after_note_content_changes(client: TestClie
     client.put(
         f"/v1/notes/{note_id}",
         json=_note_payload(note_id, second_text, second_updated_at),
+    )
+    second_job = client.post(
+        "/v1/process-note",
+        json=_process_payload(
+            note_id=note_id,
+            text="stale-client-text",
+            updated_at=second_updated_at,
+            content_hash="constant-client-hash",
+        ),
+    )
+    assert second_job.status_code == 202
+    assert first_job.json()["job_id"] != second_job.json()["job_id"]
+
+
+def test_process_note_queues_new_job_after_note_title_changes(client: TestClient) -> None:
+    note_id = "note-process-api-title-change"
+    text = "Knowledge graphs improve retrieval quality."
+    first_updated_at = "2026-03-07T12:22:00Z"
+    second_updated_at = "2026-03-07T12:23:00Z"
+
+    client.put(
+        f"/v1/notes/{note_id}",
+        json=_note_payload(
+            note_id,
+            text,
+            first_updated_at,
+            note_title="Initial title",
+        ),
+    )
+    first_job = client.post(
+        "/v1/process-note",
+        json=_process_payload(
+            note_id=note_id,
+            text="stale-client-text",
+            updated_at=first_updated_at,
+            content_hash="constant-client-hash",
+        ),
+    )
+    assert first_job.status_code == 202
+
+    client.put(
+        f"/v1/notes/{note_id}",
+        json=_note_payload(
+            note_id,
+            text,
+            second_updated_at,
+            note_title="Updated title",
+        ),
     )
     second_job = client.post(
         "/v1/process-note",

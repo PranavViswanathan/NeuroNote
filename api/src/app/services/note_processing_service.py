@@ -1,20 +1,22 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-import re
 
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.db.engine import get_session_factory
 from app.db.repositories.entity_alias_repository import EntityAliasRepository
-from app.db.repositories.graph_repository import GraphRepository
 from app.db.repositories.note_repository import NoteRepository
 from app.nlp.pipeline import NoteNlpPipeline
 from app.nlp.resolution.resolver import CanonicalAlias, EntityResolver
+from app.services.graph_sync_service import (
+    CanonicalEntityMapping,
+    GraphSyncPayload,
+    GraphSyncService,
+)
 from shared.contracts.python.v1.process import ProcessNoteRequest
 
 _DEFAULT_GRAPH_NAME = "neuronote"
-_RELATION_TYPE_PATTERN = re.compile(r"[^A-Za-z0-9_]+")
 
 
 class NoteNotFoundError(RuntimeError):
@@ -24,8 +26,11 @@ class NoteNotFoundError(RuntimeError):
 @dataclass(frozen=True, slots=True)
 class ProcessedNoteSnapshot:
     note_id: str
+    subject_id: str
+    note_title: str
     content_text: str
     content_hash: str
+    updated_at: str
 
 
 class NoteProcessingService:
@@ -47,8 +52,11 @@ class NoteProcessingService:
                 raise NoteNotFoundError(f"Note {note_id} was not found")
             return ProcessedNoteSnapshot(
                 note_id=note.note_id,
+                subject_id=note.subject_id,
+                note_title=note.note_title,
                 content_text=note.content_text,
                 content_hash=note.content_hash,
+                updated_at=note.updated_at,
             )
 
     def _is_postgres(self, session: Session) -> bool:
@@ -56,9 +64,14 @@ class NoteProcessingService:
             return False
         return session.bind.dialect.name == "postgresql"
 
-    def _normalize_relation_type(self, raw_predicate: str) -> str:
-        normalized = _RELATION_TYPE_PATTERN.sub("_", raw_predicate.upper()).strip("_")
-        return normalized or "RELATED_TO"
+    def _compose_pipeline_text(self, snapshot: ProcessedNoteSnapshot) -> str:
+        title = snapshot.note_title.strip()
+        body = snapshot.content_text.strip()
+        if not title:
+            return body
+        if not body:
+            return title
+        return f"{title}\n\n{body}"
 
     def _build_resolver(self, repository: EntityAliasRepository) -> EntityResolver:
         alias_records = repository.list_alias_index()
@@ -82,7 +95,7 @@ class NoteProcessingService:
     def _persist_graph_and_vector(self, *, snapshot: ProcessedNoteSnapshot) -> None:
         result = self._pipeline.extract(
             note_id=snapshot.note_id,
-            content_text=snapshot.content_text,
+            content_text=self._compose_pipeline_text(snapshot),
             content_hash=snapshot.content_hash,
         )
 
@@ -90,85 +103,34 @@ class NoteProcessingService:
             if not self._is_postgres(session):
                 return
 
-            repository = GraphRepository(session)
             with session.begin():
                 alias_repository = EntityAliasRepository(session)
                 resolution_batch = self._build_resolver(alias_repository).resolve(result.entities)
-                resolved_index = {
-                    item.source_entity_id: item
+                resolved_index: dict[str, CanonicalEntityMapping] = {
+                    item.source_entity_id: CanonicalEntityMapping(
+                        canonical_entity_id=item.canonical_entity_id,
+                        canonical_name=item.canonical_name,
+                        confidence=float(item.confidence),
+                    )
                     for item in resolution_batch.resolved
                 }
-
-                for entity in result.entities:
-                    resolved = resolved_index.get(entity.entity_id)
-                    canonical_id = (
-                        resolved.canonical_entity_id if resolved is not None else entity.entity_id
-                    )
-                    canonical_name = (
-                        resolved.canonical_name if resolved is not None else entity.text
-                    )
-                    canonical_confidence = (
-                        max(entity.confidence, resolved.confidence)
-                        if resolved is not None
-                        else entity.confidence
-                    )
-                    repository.upsert_node(
-                        label="Entity",
-                        node_id=canonical_id,
-                        properties={
-                            "name": canonical_name,
-                            "kind": entity.label,
-                            "confidence": canonical_confidence,
-                            "source_note_id": snapshot.note_id,
-                        },
-                        graph_name=self._graph_name,
-                    )
-
-                for keyphrase in result.keyphrases:
-                    repository.upsert_node(
-                        label="Concept",
-                        node_id=keyphrase.phrase_id,
-                        properties={
-                            "name": keyphrase.text,
-                            "score": keyphrase.score,
-                            "source_note_id": snapshot.note_id,
-                        },
-                        graph_name=self._graph_name,
-                    )
-
-                for relation in result.relations:
-                    repository.upsert_node(
-                        label="Concept",
-                        node_id=relation.subject_id,
-                        properties={
-                            "name": relation.subject_text,
-                            "source_note_id": snapshot.note_id,
-                        },
-                        graph_name=self._graph_name,
-                    )
-                    repository.upsert_node(
-                        label="Concept",
-                        node_id=relation.object_id,
-                        properties={
-                            "name": relation.object_text,
-                            "source_note_id": snapshot.note_id,
-                        },
-                        graph_name=self._graph_name,
-                    )
-                    repository.upsert_edge(
-                        source_id=relation.subject_id,
-                        target_id=relation.object_id,
-                        relation_type=self._normalize_relation_type(relation.predicate),
-                        confidence=relation.confidence,
-                        graph_name=self._graph_name,
-                    )
-
-                if result.embedding is not None:
-                    repository.upsert_embedding(
-                        item_id=snapshot.note_id,
-                        item_type="note",
+                GraphSyncService(
+                    session=session,
+                    graph_name=self._graph_name,
+                ).sync_note_graph(
+                    GraphSyncPayload(
+                        note_id=snapshot.note_id,
+                        note_title=snapshot.note_title,
+                        subject_id=snapshot.subject_id,
+                        content_hash=snapshot.content_hash,
+                        updated_at=snapshot.updated_at,
+                        entities=result.entities,
+                        keyphrases=result.keyphrases,
+                        relations=result.relations,
+                        resolved_entities=resolved_index,
                         embedding=result.embedding,
                     )
+                )
 
     def process_note(self, payload: ProcessNoteRequest) -> None:
         snapshot = self._load_snapshot(payload.note_id)

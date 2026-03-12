@@ -3,7 +3,7 @@
 NeuroNote is a monorepo with a web frontend, a Python API service, shared contracts, and infrastructure configuration.
 
 ## Services
-- `web/`: Next.js frontend with note editor, autosave orchestration, and API clients.
+- `web/`: Next.js frontend with note editor (`note_title` + content), autosave orchestration, and API clients.
 - `api/`: FastAPI service for health, note persistence, and note-processing endpoints.
 - `shared/`: versioned request/response contracts shared across services.
 - `infra/`: local infrastructure orchestration.
@@ -39,6 +39,7 @@ Schema ownership is migration-first:
 - `DB_AUTO_CREATE=false` in compose API runtime.
 - PostgreSQL auto-create is disabled in app startup logic.
 - Migration `20260307_0002` is idempotent for pre-existing `entity_aliases` tables.
+- Migration `20260311_0003` is idempotent for pre-existing `notes.note_title` columns.
 
 ### Common Commands
 - API checks: `make compose-check`
@@ -71,20 +72,33 @@ Use this only if you explicitly want a non-container local run.
 curl -sS -X PUT http://127.0.0.1:8000/v1/notes/demo-note \
   -H 'Content-Type: application/json' \
   --data-binary @- <<'JSON'
-{"note_id":"demo-note","content_json":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Machine Learning improves Graph Reasoning across Notes"}]}]},"content_text":"Machine Learning improves Graph Reasoning across Notes","updated_at":"2026-03-07T12:00:00Z"}
+{"note_id":"demo-note","note_title":"Graph Reasoning Notes","content_json":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Machine Learning improves Graph Reasoning across Notes"}]}]},"content_text":"Machine Learning improves Graph Reasoning across Notes","updated_at":"2026-03-07T12:00:00Z"}
 JSON
 ```
 2. Trigger processing:
-   - Hash helper: `HASH=$(printf 'Machine Learning improves Graph Reasoning across Notes' | shasum -a 256 | awk '{print $1}')`
+   - Hash helper: `HASH=$(printf 'Graph Reasoning Notes\n\nMachine Learning improves Graph Reasoning across Notes' | shasum -a 256 | awk '{print $1}')`
 ```bash
 curl -sS -X POST http://127.0.0.1:8000/v1/process-note \
   -H 'Content-Type: application/json' \
-  -d "{\"note_id\":\"demo-note\",\"content_text\":\"Machine Learning improves Graph Reasoning across Notes\",\"content_hash\":\"$HASH\",\"updated_at\":\"2026-03-07T12:00:00Z\"}"
+  -d "{\"note_id\":\"demo-note\",\"content_text\":\"Graph Reasoning Notes\n\nMachine Learning improves Graph Reasoning across Notes\",\"content_hash\":\"$HASH\",\"updated_at\":\"2026-03-07T12:00:00Z\"}"
 ```
 3. Poll status:
    - `curl http://127.0.0.1:8000/v1/process-status/<job_id>`
 4. Expected status flow:
    - `queued -> running -> completed` (or `failed` with `error` populated).
+
+## Validate Startup Backfill Status
+After API startup (PostgreSQL mode), check async backfill progress:
+
+```bash
+curl -sS http://127.0.0.1:8000/v1/backfill-status
+```
+
+Response shape:
+- `total_notes`
+- `processed_notes`
+- `failed_notes`
+- `in_progress`
 
 ## Validate Entity Resolution Flow
 1. Confirm a canonical alias:

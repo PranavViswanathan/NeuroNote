@@ -25,27 +25,28 @@ Each story follows the working rule from `docs/codex.md`:
 - Background jobs: FastAPI BackgroundTasks first, Huey later
 - Product differentiation: passive, explainable semantic connections
 
-## Progress Snapshot (2026-03-10)
-- Overall status: `Epic E0 complete`; `Epic E1 complete`; `Epic E2 complete`; `Epic E3 complete`; `Epic E4 complete`; `Epics E5-E9 not started`.
+## Progress Snapshot (2026-03-11)
+- Overall status: `Epic E0 complete`; `Epic E1 complete`; `Epic E2 complete`; `Epic E3 complete`; `Epic E4 complete`; `Epic E5 complete`; `Epics E6-E9 not started`.
 - Completed stories: `S0.1 Repository and service skeleton`, `S0.2 Quality bar and test harnesses`.
 - Completed stories: `S1.1 TipTap editor baseline`, `S1.2 Debounced autosave and processing triggers`.
 - Completed stories: `S2.1 Core relational schema for notes and blocks`, `S2.2 Graph and vector extension activation`.
 - Completed stories: `S3.1 spaCy + keyphrase + relation extraction pipeline`, `S3.2 NLP latency budget and performance regression control`.
 - Completed stories: `S4.1 Five-layer resolution funnel`, `S4.2 Alias table persistence and feedback loop`.
+- Completed stories: `S5.1 Typed node and relationship model`, `S5.2 Idempotent delete-and-replace synchronization`.
 - Validation evidence:
   - `make setup` completed with `uv` and created `api/.venv`.
   - `make check` passed (`ruff`, `mypy`).
   - `make test` passed and `tests/unit/test_structure.py` passed with E3 additions.
   - Added E1 API and contract tests now pass.
   - `npm --prefix web run typecheck` passed.
-  - `npm --prefix web run test` passed (`16` tests).
+  - `npm --prefix web run test` passed (`17` tests) in compose runtime.
   - Added E2 DB structure (`app/db`), Alembic scaffold, and migrations with `subjects/notes/blocks/tags`.
   - Added DB-focused tests for schema integrity, repository behavior, extension checks, and graph/vector repository operations.
   - `make test-db` passes against extension-enabled local Postgres (`4` tests).
   - `make db-check-extensions` passes (`AGE and pgvector checks passed`).
   - Added E3 NLP package (`app/nlp`), note processing service, background job lifecycle transitions, note-version job coalescing, and processing API integration tests.
   - Added E3 perf fixtures (`200/800/2000` words) and latency guardrail tests under `tests/perf`.
-  - Current Python validation set: `79 passed, 4 skipped` (`integration + unit`).
+  - Current Python validation set: `87 passed, 5 skipped` (`integration + unit`).
   - Added E4 resolver package (`app/nlp/resolution`) with normalization, abbreviation, fuzzy, embedding, and layered resolver orchestration.
   - Added E4 alias persistence (`entity_aliases`) model/repository, alias bootstrap import entrypoint, and API routes (`confirm`, `calibration`, `resolve-preview`).
   - Added E4 tests across unit/integration/schema/structure.
@@ -60,6 +61,10 @@ Each story follows the working rule from `docs/codex.md`:
   - `NoteEditor` now uses TipTap as the single runtime editor path (textarea path removed).
   - `/v1/process-note` dedupe now keys on persisted `note.content_hash` (server-authoritative), not client payload hash.
   - Dead code cleanup completed for removed editor state helper and unused placeholder package.
+- E5 implementation pass completed (2026-03-11):
+  - Added typed graph sync service with source-note delete-and-replace behavior (`source_note_id` provenance).
+  - Added startup async backfill workflow and `/v1/backfill-status` status endpoint.
+  - Added explicit `note_title` support across DB/API/contracts/web and included title in persisted hash identity.
 
 ## Architecture Decisions (Track In docs/plan.md)
 - 2026-03-07: TipTap is the canonical editor runtime path.
@@ -80,6 +85,18 @@ Each story follows the working rule from `docs/codex.md`:
 - 2026-03-10: Note processing uses a single explicit transaction for alias reads + graph writes.
   - Rationale: avoid nested/implicit transaction collisions in SQLAlchemy session lifecycle.
   - Impacted areas: `api/src/app/services/note_processing_service.py`, `tests/unit/test_note_processing_service.py`.
+- 2026-03-11: Note identity and processing hash include `note_title` + body text.
+  - Rationale: title-only edits must trigger new processing snapshots and avoid stale coalescing.
+  - Impacted areas: `api/src/app/db/repositories/note_repository.py`, `web/src/components/editor/NoteEditor.tsx`, `shared/contracts/python/v1/note.py`.
+- 2026-03-11: Graph synchronization uses typed edges with relation collapse to `RELATED_TO`.
+  - Rationale: keep graph schema predictable while preserving original predicate as edge metadata.
+  - Impacted areas: `api/src/app/services/graph_sync_service.py`, `api/src/app/db/repositories/graph_repository.py`, `tests/unit/test_graph_sync_service.py`.
+- 2026-03-11: Startup graph backfill is async and non-blocking in PostgreSQL mode.
+  - Rationale: keep API startup responsive while converging existing notes to the new graph model.
+  - Impacted areas: `api/src/app/main.py`, `api/src/app/services/startup_backfill_service.py`, `api/src/app/routes/backfill.py`.
+- 2026-03-12: Embedding table writes are schema-pinned to `public.note_embeddings`.
+  - Rationale: AGE sets session `search_path` to `ag_catalog`; unqualified writes can drift schemas and break operational checks.
+  - Impacted areas: `api/src/app/db/repositories/graph_repository.py`, `tests/integration/test_graph_vector_repository.py`.
 
 ## Epic E0: Project Foundations and Delivery Guardrails [Completed 2026-03-01]
 Context: The scoping doc assumes a multi-service system. Without shared conventions, implementation speed will collapse under integration drift. This epic creates the base structure, contract boundaries, and CI quality gates so all later epics are reliable.
@@ -277,10 +294,10 @@ Subtask ST4.2.3.a: Add API endpoint for user confirmation on low-confidence matc
 Subtask ST4.2.3.b: Persist approved alias mappings.
 Subtask ST4.2.3.c: Track confidence calibration stats.
 
-## Epic E5: Global Knowledge Graph Schema and Sync
+## Epic E5: Global Knowledge Graph Schema and Sync [Completed 2026-03-11]
 Context: NeuroNote differentiation depends on a typed, cross-subject, confidence-aware graph that stays in sync with note edits.
 
-### Story S5.1: Typed node and relationship model
+### Story S5.1: Typed node and relationship model [Completed]
 Context: Need strict schema so extraction output remains queryable and explainable.
 
 #### Task T5.1.1: Build graph model structure
@@ -298,7 +315,7 @@ Subtask ST5.1.3.a: Map NLP entities/keyphrases to `Concept`/`Entity`.
 Subtask ST5.1.3.b: Map note blocks to `MENTIONS` edges with spans/confidence.
 Subtask ST5.1.3.c: Compute `APPEARS_IN` edges from note-subject relationships.
 
-### Story S5.2: Idempotent delete-and-replace synchronization
+### Story S5.2: Idempotent delete-and-replace synchronization [Completed]
 Context: Full-note reprocessing with source tagging is simpler and safer than incremental diff sync.
 
 #### Task T5.2.1: Build synchronization transaction structure
@@ -506,7 +523,7 @@ Context: These are mandatory scenarios that validate the full architecture promi
 ## Milestone Sequence
 M1: Complete (`E0 complete`, `E1 complete`).
 M2: E2 data layer and E3 baseline NLP complete.
-M3: E4 resolution + E5 graph sync complete.
+M3: Complete (`E4 resolution complete`, `E5 graph sync complete`).
 M4: E6 visualization + E7 async pipeline complete.
 M5: E8 UX differentiation + E9 operational readiness complete.
 

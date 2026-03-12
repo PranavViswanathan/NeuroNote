@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import pytest
+from sqlalchemy import text
 from sqlalchemy.orm import Session
 
 from app.db.repositories.graph_repository import GraphRepository
@@ -75,3 +76,30 @@ def test_graph_repository_embedding_neighbors(db_session: Session) -> None:
     assert neighbors
     assert neighbors[0].item_id == "concept-neighbor-a"
     assert neighbors[0].distance == pytest.approx(0.0, abs=1e-6)
+
+
+@pytest.mark.integration
+@pytest.mark.postgres
+def test_graph_repository_writes_note_embeddings_to_public_schema(db_session: Session) -> None:
+    dialect = db_session.bind.dialect.name if db_session.bind is not None else ""
+    if dialect != "postgresql":
+        pytest.skip("PostgreSQL-only vector test")
+
+    repository = GraphRepository(db_session)
+    with db_session.begin():
+        repository.upsert_embedding(
+            item_id="note-public-schema-check",
+            item_type="note",
+            embedding=_unit_embedding(2),
+        )
+
+    row = db_session.execute(
+        text(
+            """
+            SELECT item_id
+            FROM public.note_embeddings
+            WHERE item_id = 'note-public-schema-check'
+            """
+        )
+    ).first()
+    assert row is not None
