@@ -345,4 +345,86 @@ describe("NotesWorkspace", () => {
       expect(within(allSection).getByRole("button", { name: /Recovered Note/ })).toBeInTheDocument();
     });
   });
+
+  it("rolls back optimistic pin toggle when persistence fails", async () => {
+    let rejectSave!: (reason?: unknown) => void;
+    const pendingSave = new Promise<{
+      note_id: string;
+      saved_at: string;
+      version: number;
+    }>((_resolve, reject) => {
+      rejectSave = reject;
+    });
+
+    vi.mocked(listNotes).mockResolvedValue({
+      items: [noteSummary("note-a", { note_title: "Pin Candidate", is_pinned: false })],
+      total: 1,
+    });
+    vi.mocked(getNote).mockResolvedValue({
+      note_id: "note-a",
+      note_title: "Pin Candidate",
+      subject_id: "inbox",
+      tags: [],
+      is_pinned: false,
+      is_archived: false,
+      content_json: { type: "doc", content: [] },
+      content_text: "Text note-a",
+      updated_at: "2026-03-12T20:00:00Z",
+      version: 1,
+    });
+    vi.mocked(saveNote).mockReturnValue(pendingSave);
+
+    render(<NotesWorkspace baseUrl="http://localhost:8000" />);
+
+    const allSection = await screen.findByTestId("notes-section-all");
+    const noteButton = within(allSection).getByRole("button", { name: /Pin Candidate/ });
+    fireEvent.contextMenu(noteButton);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Pin note" }));
+
+    await waitFor(() => {
+      const pinnedSection = screen.getByTestId("notes-section-pinned");
+      expect(within(pinnedSection).getByRole("button", { name: /Pin Candidate/ })).toBeInTheDocument();
+      expect(within(allSection).queryByRole("button", { name: /Pin Candidate/ })).not.toBeInTheDocument();
+    });
+
+    rejectSave(new Error("pin failed"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Failed to update pin status")).toBeInTheDocument();
+    });
+
+    expect(screen.queryByTestId("notes-section-pinned")).not.toBeInTheDocument();
+    expect(within(allSection).getByRole("button", { name: /Pin Candidate/ })).toBeInTheDocument();
+  });
+
+  it("rolls back optimistic delete when delete request fails", async () => {
+    let rejectDelete!: (reason?: unknown) => void;
+    const pendingDelete = new Promise<void>((_resolve, reject) => {
+      rejectDelete = reject;
+    });
+
+    vi.mocked(listNotes).mockResolvedValue({
+      items: [noteSummary("note-a", { note_title: "Delete Candidate" })],
+      total: 1,
+    });
+    vi.mocked(deleteNote).mockReturnValue(pendingDelete);
+
+    render(<NotesWorkspace baseUrl="http://localhost:8000" />);
+
+    const allSection = await screen.findByTestId("notes-section-all");
+    const noteButton = within(allSection).getByRole("button", { name: /Delete Candidate/ });
+    fireEvent.contextMenu(noteButton);
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Delete note" }));
+
+    await waitFor(() => {
+      expect(within(allSection).queryByRole("button", { name: /Delete Candidate/ })).not.toBeInTheDocument();
+    });
+
+    rejectDelete(new Error("delete failed"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Failed to delete note")).toBeInTheDocument();
+    });
+    expect(within(allSection).getByRole("button", { name: /Delete Candidate/ })).toBeInTheDocument();
+  });
 });

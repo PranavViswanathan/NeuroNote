@@ -35,6 +35,25 @@ interface NoteContextMenuState {
   y: number;
 }
 
+function compareByWorkspaceOrder(left: NoteSummary, right: NoteSummary): number {
+  if (left.is_pinned !== right.is_pinned) {
+    return left.is_pinned ? -1 : 1;
+  }
+  const updatedDiff = right.updated_at.localeCompare(left.updated_at);
+  if (updatedDiff !== 0) {
+    return updatedDiff;
+  }
+  return left.note_id.localeCompare(right.note_id);
+}
+
+function sortWorkspaceNotes(items: NoteSummary[]): NoteSummary[] {
+  return [...items].sort(compareByWorkspaceOrder);
+}
+
+function pickFallbackSelection(items: NoteSummary[]): string | null {
+  return sortWorkspaceNotes(items)[0]?.note_id ?? null;
+}
+
 function makeNewNoteId(): string {
   return `note-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 }
@@ -71,6 +90,17 @@ function toPreview(content: string): string {
     return normalized;
   }
   return `${normalized.slice(0, 93)}...`;
+}
+
+function toDisplayDate(value: string): string {
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    return "Unknown";
+  }
+  return parsed.toLocaleDateString(undefined, {
+    month: "short",
+    day: "numeric",
+  });
 }
 
 export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) {
@@ -129,7 +159,7 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
           tag: filters.tag.trim() || undefined,
           is_archived: filters.showArchived,
         });
-        setNotes(response.items);
+        setNotes(sortWorkspaceNotes(response.items));
 
         setSelectedNoteId((current) => {
           const persisted = window.localStorage.getItem(SELECTED_NOTE_STORAGE_KEY);
@@ -142,7 +172,7 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
               return candidate;
             }
           }
-          return response.items[0]?.note_id ?? null;
+          return pickFallbackSelection(response.items);
         });
       } catch {
         setErrorMessage("Failed to load notes");
@@ -241,19 +271,21 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
   const handleMetadataSaved = useCallback(
     async (payload: WorkspaceMetadataSavedPayload) => {
       setNotes((current) =>
-        current.map((item) =>
-          item.note_id === payload.noteId
-            ? {
-                ...item,
-                note_title: payload.noteTitle,
-                subject_id: payload.subjectId,
-                tags: payload.tags,
-                is_pinned: payload.isPinned,
-                is_archived: payload.isArchived,
-                updated_at: payload.updatedAt,
-                version: payload.version,
-              }
-            : item,
+        sortWorkspaceNotes(
+          current.map((item) =>
+            item.note_id === payload.noteId
+              ? {
+                  ...item,
+                  note_title: payload.noteTitle,
+                  subject_id: payload.subjectId,
+                  tags: payload.tags,
+                  is_pinned: payload.isPinned,
+                  is_archived: payload.isArchived,
+                  updated_at: payload.updatedAt,
+                  version: payload.version,
+                }
+              : item,
+          ),
         ),
       );
       await refreshNotes(payload.noteId);
@@ -307,6 +339,22 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
         return;
       }
 
+      const previousNotes = notes;
+      setNotes((current) =>
+        sortWorkspaceNotes(
+          current.map((item) =>
+            item.note_id === noteId
+              ? {
+                  ...item,
+                  note_title: trimmedTitle,
+                  updated_at: new Date().toISOString(),
+                }
+              : item,
+          ),
+        ),
+      );
+      closeContextMenu();
+
       try {
         const existing = await getNote(baseUrl, noteId);
         await saveNote(baseUrl, {
@@ -322,9 +370,8 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
         });
         await refreshNotes(noteId);
       } catch {
+        setNotes(previousNotes);
         setErrorMessage("Failed to rename note");
-      } finally {
-        closeContextMenu();
       }
     },
     [baseUrl, closeContextMenu, notes, refreshNotes],
@@ -332,20 +379,62 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
 
   const handleDeleteNote = useCallback(
     async (noteId: string) => {
+      const previousNotes = notes;
+      const previousSelected = selectedNoteId;
+      const remaining = notes.filter((item) => item.note_id !== noteId);
+
+      setNotes(sortWorkspaceNotes(remaining));
+      setSelectedNoteId((current) => {
+        if (current !== noteId) {
+          return current;
+        }
+        return pickFallbackSelection(remaining);
+      });
+      setHighlightedNoteId((current) => {
+        if (current !== noteId) {
+          return current;
+        }
+        return pickFallbackSelection(remaining);
+      });
+      closeContextMenu();
+
       try {
         await deleteNote(baseUrl, noteId);
         await refreshNotes(null);
       } catch {
+        setNotes(previousNotes);
+        setSelectedNoteId(previousSelected);
+        setHighlightedNoteId(previousSelected ?? pickFallbackSelection(previousNotes));
         setErrorMessage("Failed to delete note");
-      } finally {
-        closeContextMenu();
       }
     },
-    [baseUrl, closeContextMenu, refreshNotes],
+    [baseUrl, closeContextMenu, notes, refreshNotes, selectedNoteId],
   );
 
   const handleTogglePinnedNote = useCallback(
     async (noteId: string) => {
+      const target = notes.find((item) => item.note_id === noteId);
+      if (!target) {
+        closeContextMenu();
+        return;
+      }
+      const previousNotes = notes;
+
+      setNotes((current) =>
+        sortWorkspaceNotes(
+          current.map((item) =>
+            item.note_id === noteId
+              ? {
+                  ...item,
+                  is_pinned: !item.is_pinned,
+                  updated_at: new Date().toISOString(),
+                }
+              : item,
+          ),
+        ),
+      );
+      closeContextMenu();
+
       try {
         const existing = await getNote(baseUrl, noteId);
         await saveNote(baseUrl, {
@@ -361,12 +450,11 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
         });
         await refreshNotes(noteId);
       } catch {
+        setNotes(previousNotes);
         setErrorMessage("Failed to update pin status");
-      } finally {
-        closeContextMenu();
       }
     },
-    [baseUrl, closeContextMenu, refreshNotes],
+    [baseUrl, closeContextMenu, notes, refreshNotes],
   );
 
   const handleListKeyDown = useCallback(
@@ -434,7 +522,10 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
       >
         <span className="note-list-title">{note.note_title}</span>
         <span className="note-list-preview">{toPreview(note.content_text)}</span>
-        <span className="note-list-meta">{note.subject_id}</span>
+        <span className="note-list-meta-row">
+          <span className="note-list-meta">{note.subject_id}</span>
+          <span className="note-list-date">{toDisplayDate(note.updated_at)}</span>
+        </span>
       </button>
     ),
     [closeContextMenu, handleNoteContextMenu, handleNoteContextMenuKeyDown, selectedNoteId],
@@ -452,6 +543,21 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
             New note
           </button>
         </header>
+
+        <div className="workspace-stat-grid" aria-label="Workspace summary">
+          <article className="workspace-stat-card">
+            <span className="workspace-stat-label">Total</span>
+            <strong className="workspace-stat-value">{notes.length}</strong>
+          </article>
+          <article className="workspace-stat-card">
+            <span className="workspace-stat-label">Pinned</span>
+            <strong className="workspace-stat-value">{pinnedNotes.length}</strong>
+          </article>
+          <article className="workspace-stat-card">
+            <span className="workspace-stat-label">Recent</span>
+            <strong className="workspace-stat-value">{recentNotes.length}</strong>
+          </article>
+        </div>
 
         <div className="notes-filters">
           <label className="notes-filter-label">
@@ -499,7 +605,10 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
 
         {recentNotes.length > 0 ? (
           <section className="notes-section" data-testid="notes-section-recent">
-            <h2>Recent</h2>
+            <h2>
+              Recent
+              <span>{recentNotes.length}</span>
+            </h2>
             <div className="notes-chip-list">
               {recentNotes.map((note) => (
                 <button
@@ -517,7 +626,10 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
 
         {pinnedNotes.length > 0 ? (
           <section className="notes-section" data-testid="notes-section-pinned">
-            <h2>Pinned</h2>
+            <h2>
+              Pinned
+              <span>{pinnedNotes.length}</span>
+            </h2>
             <ul className="notes-list">
               {pinnedNotes.map((note) => (
                 <li key={`pinned-${note.note_id}`}>{renderNoteButton(note)}</li>
@@ -527,7 +639,10 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
         ) : null}
 
         <section className="notes-section" data-testid="notes-section-all">
-          <h2>All notes</h2>
+          <h2>
+            All notes
+            <span>{unpinnedNotes.length}</span>
+          </h2>
           <ul
             className="notes-list"
             role="listbox"

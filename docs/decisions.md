@@ -131,3 +131,12 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
 - Runtime compatibility hardening:
   - `note_assets` existence checks now use PostgreSQL `to_regclass('public.note_assets')` probing when on Postgres.
   - Note asset reconciliation now no-ops when backend hits an undefined-table error for `note_assets`, preventing note-save failures on partially migrated environments.
+
+## 2026-03-13 (Epic E9 Workspace/Editor UX Delivery)
+- Applied major visual refresh in workspace/editor surfaces via updated CSS variable system and panel/card hierarchy polish.
+- Added optimistic UI + rollback semantics for note rename, pin/unpin, and delete actions in workspace state management.
+- Added regression tests that enforce optimistic behavior followed by rollback on failed persistence (`pin` and `delete` paths).
+- Validation/runtime notes:
+  - local host web runtime still unstable due `esbuild` platform mismatch;
+  - canonical validation used compose runtime (`docker compose -f infra/docker-compose.yml run --rm web npm run test`);
+  - API regression suite revalidated in compose (`111 passed, 5 skipped`).

@@ -88,6 +88,11 @@ Each story follows the working rule from `docs/codex.md`:
   - Added PostgreSQL schema-qualified `note_assets` existence probe and undefined-table reconciliation fallback.
   - Added regression tests covering Postgres table probe behavior and runtime missing-table no-op path.
   - Validation results: compose API checks passed (`ruff`, `mypy`) and Python suite `111 passed, 5 skipped`.
+- E9 UX redesign pass completed (2026-03-13):
+  - Added major workspace/editor visual refresh with updated design tokens, panel hierarchy polish, and improved note row metadata clarity.
+  - Added optimistic workspace interactions with rollback guarantees for rename/pin/delete failure paths.
+  - Added regression coverage for optimistic pin and delete rollback behavior in workspace tests.
+  - Validation results: `npm --prefix web run typecheck` passed; compose web tests `59 passed`; compose API suite `111 passed, 5 skipped`.
 - Roadmap rebaseline completed (2026-03-12):
   - Legacy unfinished `E6-E9` are deprecated for planning purposes.
   - New commercial-track roadmap is now defined as `E6 Workspace`, `E7 Editor Commands`, `E8 Math/Images/Export`, `E9 UX Hardening`, `E10 Hybrid Workflows`, `E11 Guided Graph`, and `E12 Launch Hardening`.
