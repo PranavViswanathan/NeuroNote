@@ -8,7 +8,10 @@ export type EditorCommandId =
   | "checklist"
   | "blockquote"
   | "codeBlock"
-  | "divider";
+  | "divider"
+  | "mathInline"
+  | "mathBlock"
+  | "image";
 
 export interface EditorCommandDefinition {
   id: EditorCommandId;
@@ -33,6 +36,9 @@ export const EDITOR_COMMANDS: EditorCommandDefinition[] = [
   { id: "blockquote", label: "Quote", keywords: ["quote", "blockquote", "callout"] },
   { id: "codeBlock", label: "Code Block", keywords: ["code", "snippet", "pre"] },
   { id: "divider", label: "Divider", keywords: ["divider", "rule", "line"] },
+  { id: "mathInline", label: "Math Inline", keywords: ["math", "latex", "equation", "inline"] },
+  { id: "mathBlock", label: "Math Block", keywords: ["math", "latex", "equation", "block"] },
+  { id: "image", label: "Image", keywords: ["image", "media", "upload", "photo"] },
 ];
 
 export function filterEditorCommands(query: string): EditorCommandDefinition[] {

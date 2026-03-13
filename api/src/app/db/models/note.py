@@ -10,6 +10,7 @@ from app.db.models.base import Base
 
 if TYPE_CHECKING:
     from app.db.models.block import Block
+    from app.db.models.note_asset import NoteAsset
     from app.db.models.note_tag import NoteTag
     from app.db.models.subject import Subject
     from app.db.models.tag import Tag
@@ -51,6 +52,10 @@ class Note(Base):
         cascade="all, delete-orphan",
     )
     note_tags: Mapped[list["NoteTag"]] = relationship(
+        back_populates="note",
+        cascade="all, delete-orphan",
+    )
+    note_assets: Mapped[list["NoteAsset"]] = relationship(
         back_populates="note",
         cascade="all, delete-orphan",
     )

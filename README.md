@@ -4,7 +4,7 @@ NeuroNote is a monorepo with a web frontend, a Python API service, shared contra
 
 ## Services
 - `web/`: Next.js frontend with workspace sidebar (create/open/right-click actions), pinned/all note sections, organization controls, editor autosave orchestration, and API clients.
-- `api/`: FastAPI service for health, note persistence/listing, organization-aware note queries, and note-processing endpoints.
+- `api/`: FastAPI service for health, note persistence/listing, organization-aware note queries, note-processing endpoints, media asset upload/retrieval/deletion, and markdown export.
 - `shared/`: versioned request/response contracts shared across services.
 - `infra/`: local infrastructure orchestration.
 - `tests/`: repository-level structure and integration tests.
@@ -41,6 +41,7 @@ Schema ownership is migration-first:
 - Migration `20260307_0002` is idempotent for pre-existing `entity_aliases` tables.
 - Migration `20260311_0003` is idempotent for pre-existing `notes.note_title` columns.
 - Migration `20260312_0004` is idempotent for workspace-organization schema (`notes` flags + `note_tags`).
+- Migration `20260313_0005` is idempotent for media schema (`note_assets`).
 
 ### Common Commands
 - API checks: `make compose-check`
@@ -160,3 +161,49 @@ Useful query params:
    - Wiki-link suggestions appear.
 6. Type `[[Some New Linked Note` and press `Enter`:
    - Quick-create option creates that note and inserts `[[Some New Linked Note]]` inline.
+
+## Validate Math, Image, and Export Flow (Epic E8)
+1. Save/update a note:
+```bash
+curl -sS -X PUT http://127.0.0.1:8000/v1/notes/demo-note \
+  -H 'Content-Type: application/json' \
+  --data-binary @- <<'JSON'
+{"note_id":"demo-note","note_title":"Math + Image Demo","subject_id":"inbox","tags":[],"is_pinned":false,"is_archived":false,"content_json":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Baseline content"}]}]},"content_text":"Baseline content","updated_at":"2026-03-13T12:00:00Z"}
+JSON
+```
+2. Upload an image using JSON base64 payload:
+```bash
+B64=$(printf '\x89PNG\r\n\x1a\nabc' | base64)
+curl -sS -X POST http://127.0.0.1:8000/v1/media/uploads \
+  -H 'Content-Type: application/json' \
+  --data-binary @- <<JSON
+{"note_id":"demo-note","filename":"diagram.png","mime_type":"image/png","content_base64":"$B64"}
+JSON
+```
+3. Use returned `asset_id` and `src` to save note content with math + image nodes:
+```bash
+curl -sS -X PUT http://127.0.0.1:8000/v1/notes/demo-note \
+  -H 'Content-Type: application/json' \
+  --data-binary @- <<'JSON'
+{"note_id":"demo-note","note_title":"Math + Image Demo","subject_id":"inbox","tags":[],"is_pinned":false,"is_archived":false,"content_json":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"E="},{"type":"mathInline","attrs":{"latex":"mc^2"}}]},{"type":"mathBlock","attrs":{"latex":"x^2 + y^2"}},{"type":"image","attrs":{"src":"/v1/media/<asset_id>","assetId":"<asset_id>","alt":"diagram","filename":"<asset_id>.png"}}]},"content_text":"E=mc^2","updated_at":"2026-03-13T12:01:00Z"}
+JSON
+```
+4. Export markdown zip and inspect output:
+```bash
+curl -sS http://127.0.0.1:8000/v1/notes/demo-note/export/markdown --output demo-note.zip
+unzip -l demo-note.zip
+unzip -p demo-note.zip note.md
+```
+Expected:
+- archive contains `note.md` and `assets/<asset_id>.png`
+- `note.md` contains inline math `$mc^2$`, block math `$$x^2 + y^2$$`, and relative image link `assets/<asset_id>.png`.
+
+### E8 Migration Troubleshooting
+If API logs show `relation "note_assets" does not exist`:
+1. Apply latest migrations:
+   - `make compose-migrate`
+2. Retry the request.
+
+Behavior before migration:
+- note saves still work (media reconciliation safely no-ops),
+- media upload/get/delete endpoints return migration-required errors until migration is applied.

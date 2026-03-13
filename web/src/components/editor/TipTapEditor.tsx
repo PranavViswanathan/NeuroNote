@@ -2,7 +2,7 @@
 
 import { EditorContent, useEditor, type JSONContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
 
 import {
   EDITOR_COMMANDS,
@@ -12,6 +12,10 @@ import {
   type EditorCommandId,
   type SlashCommandMatch,
 } from "../../lib/editor/commands";
+import { ImageNode } from "../../lib/editor/extensions/image-node";
+import { MathBlock } from "../../lib/editor/extensions/math-block";
+import { MathInline } from "../../lib/editor/extensions/math-inline";
+import { normalizeMathLatex } from "../../lib/editor/math";
 import { resolveEditorKeydownAction } from "../../lib/editor/key-handlers";
 import { findWikiLinkMatch, normalizeWikiLinkTitle, type WikiLinkMatch } from "../../lib/editor/wiki-links";
 
@@ -25,11 +29,18 @@ export interface WikiLinkSuggestion {
   title: string;
 }
 
+export interface UploadedImagePayload {
+  assetId: string;
+  src: string;
+  mimeType: string;
+}
+
 interface TipTapEditorProps {
   value: JSONContent;
   onUpdate: (payload: TipTapUpdatePayload) => void;
   onBlur: () => void;
   disabled?: boolean;
+  onUploadImage?: (file: File) => Promise<UploadedImagePayload>;
   onSearchWikiLinks?: (query: string) => Promise<WikiLinkSuggestion[]>;
   onCreateWikiLink?: (title: string) => Promise<WikiLinkSuggestion>;
   onEditorError?: (message: string) => void;
@@ -73,6 +84,7 @@ export function TipTapEditor({
   onUpdate,
   onBlur,
   disabled = false,
+  onUploadImage,
   onSearchWikiLinks,
   onCreateWikiLink,
   onEditorError,
@@ -90,6 +102,7 @@ export function TipTapEditor({
   const [wikiLoading, setWikiLoading] = useState(false);
   const wikiSearchTokenRef = useRef(0);
   const keydownHandlerRef = useRef<(event: KeyboardEventLike) => boolean>(() => false);
+  const imageInputRef = useRef<HTMLInputElement | null>(null);
 
   const resolveInlineMenus = useCallback(
     (editorTextBeforeCursor: string, blockStartPos: number) => {
@@ -118,7 +131,7 @@ export function TipTapEditor({
   );
 
   const editor = useEditor({
-    extensions: [StarterKit],
+    extensions: [StarterKit, MathInline, MathBlock, ImageNode],
     content: value,
     editable: !disabled,
     onUpdate: ({ editor: tiptapEditor }) => {
@@ -239,6 +252,7 @@ export function TipTapEditor({
         chain = chain.deleteRange(deleteMatch);
       }
 
+      let shouldRunChain = true;
       switch (commandId) {
         case "paragraph":
           chain = chain.setParagraph();
@@ -270,17 +284,76 @@ export function TipTapEditor({
         case "divider":
           chain = chain.setHorizontalRule();
           break;
+        case "mathInline": {
+          const latex = normalizeMathLatex(window.prompt("Inline LaTeX", "x^2 + y^2") ?? "");
+          if (!latex) {
+            return;
+          }
+          chain = chain.insertContent({ type: "mathInline", attrs: { latex } });
+          break;
+        }
+        case "mathBlock": {
+          const latex = normalizeMathLatex(window.prompt("Block LaTeX", "\\int_0^1 x \\, dx") ?? "");
+          if (!latex) {
+            return;
+          }
+          chain = chain.insertContent({ type: "mathBlock", attrs: { latex } });
+          break;
+        }
+        case "image":
+          shouldRunChain = false;
+          imageInputRef.current?.click();
+          break;
         default:
           break;
       }
 
-      chain.run();
+      if (shouldRunChain) {
+        chain.run();
+      }
       setSlashMatch(null);
       setSlashQuery("");
       setPaletteOpen(false);
       setPaletteQuery("");
     },
     [editor],
+  );
+
+  const handleImageSelection = useCallback(
+    async (event: ChangeEvent<HTMLInputElement>) => {
+      const file = event.target.files?.[0];
+      event.target.value = "";
+      if (!file) {
+        return;
+      }
+      if (!onUploadImage) {
+        onEditorError?.("Image upload is unavailable");
+        return;
+      }
+
+      try {
+        const uploaded = await onUploadImage(file);
+        const extension = uploaded.mimeType.split("/")[1] ?? "bin";
+        editor
+          ?.chain()
+          .focus()
+          .insertContent({
+            type: "image",
+            attrs: {
+              src: uploaded.src,
+              alt: file.name,
+              title: file.name,
+              assetId: uploaded.assetId,
+              filename: `${uploaded.assetId}.${extension}`,
+              ext: extension,
+            },
+          })
+          .run();
+      } catch {
+        onEditorError?.("Failed to upload image");
+      }
+    },
+    [editor, onEditorError, onUploadImage],
   );
 
   const applyWikiLink = useCallback(
@@ -469,6 +542,16 @@ export function TipTapEditor({
           Commands
         </button>
       </div>
+      <input
+        ref={imageInputRef}
+        type="file"
+        accept="image/png,image/jpeg,image/webp,image/gif"
+        className="sr-only"
+        aria-label="Upload image"
+        onChange={(event) => {
+          void handleImageSelection(event);
+        }}
+      />
 
       {slashMatch && commandItems.length > 0 ? (
         <div className="editor-flyout" role="listbox" aria-label="Slash commands">

@@ -9,7 +9,15 @@ def test_core_tables_exist(configured_db: None) -> None:
     inspector = inspect(get_engine())
     table_names = set(inspector.get_table_names())
 
-    assert {"subjects", "notes", "blocks", "tags", "note_tags", "entity_aliases"}.issubset(table_names)
+    assert {
+        "subjects",
+        "notes",
+        "blocks",
+        "tags",
+        "note_tags",
+        "entity_aliases",
+        "note_assets",
+    }.issubset(table_names)
 
 
 def test_foreign_keys_and_indexes_exist(configured_db: None) -> None:
@@ -55,3 +63,12 @@ def test_foreign_keys_and_indexes_exist(configured_db: None) -> None:
         fk.get("referred_table") == "tags" and fk.get("constrained_columns") == ["tag_id"]
         for fk in note_tag_fks
     )
+
+    note_asset_fks = inspector.get_foreign_keys("note_assets")
+    assert any(
+        fk.get("referred_table") == "notes" and fk.get("constrained_columns") == ["note_id"]
+        for fk in note_asset_fks
+    )
+
+    note_asset_indexes = {index["name"] for index in inspector.get_indexes("note_assets")}
+    assert "ix_note_assets_note_id" in note_asset_indexes

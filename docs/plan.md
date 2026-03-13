@@ -25,8 +25,8 @@ Each story follows the working rule from `docs/codex.md`:
 - Background jobs: FastAPI BackgroundTasks first, Huey later
 - Product differentiation: passive, explainable semantic connections
 
-## Progress Snapshot (2026-03-12)
-- Overall status: `Epic E0 complete`; `Epic E1 complete`; `Epic E2 complete`; `Epic E3 complete`; `Epic E4 complete`; `Epic E5 complete`; `Epic E6 complete`; `Epic E7 complete`; `legacy Epics E6-E9 deprecated`; `commercial-track Epics E8-E10 planned`.
+## Progress Snapshot (2026-03-13)
+- Overall status: `Epic E0 complete`; `Epic E1 complete`; `Epic E2 complete`; `Epic E3 complete`; `Epic E4 complete`; `Epic E5 complete`; `Epic E6 complete`; `Epic E7 complete`; `Epic E8 complete`; `legacy Epics E6-E9 deprecated`; `commercial-track Epics E9-E10 planned`.
 - Completed stories: `S0.1 Repository and service skeleton`, `S0.2 Quality bar and test harnesses`.
 - Completed stories: `S1.1 TipTap editor baseline`, `S1.2 Debounced autosave and processing triggers`.
 - Completed stories: `S2.1 Core relational schema for notes and blocks`, `S2.2 Graph and vector extension activation`.
@@ -35,6 +35,7 @@ Each story follows the working rule from `docs/codex.md`:
 - Completed stories: `S5.1 Typed node and relationship model`, `S5.2 Idempotent delete-and-replace synchronization`.
 - Completed stories: `S6.1 Note workspace shell and navigation`, `S6.2 Organization primitives`.
 - Completed stories: `S7.1 Common block and formatting feature set`, `S7.2 Slash commands and wiki-links`.
+- Completed stories: `S8.1 Math authoring and rendering`, `S8.2 Image upload and markdown export`.
 - Validation evidence:
   - `make setup` completed with `uv` and created `api/.venv`.
   - `make check` passed (`ruff`, `mypy`).
@@ -78,6 +79,11 @@ Each story follows the working rule from `docs/codex.md`:
   - Added slash-command menu and `Cmd/Ctrl+K` command palette fallback with keyboard navigation support.
   - Added `[[wiki-link]]` autocomplete with existing-note suggestions and unresolved-link quick-create flow.
   - Validation results: web typecheck passed; compose web suite `45 passed`.
+- E8 implementation pass completed (2026-03-13):
+  - Added `note_assets` schema/migration, media storage boundary, upload/get/delete media APIs, and note-save reconciliation of unreferenced assets.
+  - Added markdown export endpoint returning zip payload (`note.md` + `assets/*`) with deterministic image/math markdown representation.
+  - Added editor support for math/image command surface and math/image plain-text fallback extraction.
+  - Validation results: Python `106 passed, 5 skipped`; web typecheck passed; compose web suite `53 passed`.
 - Roadmap rebaseline completed (2026-03-12):
   - Legacy unfinished `E6-E9` are deprecated for planning purposes.
   - New commercial-track roadmap is now defined as `E6 Workspace`, `E7 Editor Commands`, `E8 Math/Images/Export`, `E9 Guided Graph`, and `E10 Launch Hardening`.
@@ -146,6 +152,18 @@ Each story follows the working rule from `docs/codex.md`:
 - 2026-03-12: Note tags are normalized to trimmed lowercase and persisted via a dedicated `note_tags` association table.
   - Rationale: avoid duplicate semantic tags and keep filtering deterministic across UI and API.
   - Impacted areas: `api/src/app/db/models/note_tag.py`, `api/alembic/versions/20260312_0004_workspace_organization.py`, `api/src/app/db/repositories/note_repository.py`.
+- 2026-03-13: Note asset lifecycle is persisted in `note_assets` and reconciled on each note save.
+  - Rationale: prevent unreferenced media accumulation and keep note content/image state consistent.
+  - Impacted areas: `api/src/app/routes/notes.py`, `api/src/app/db/repositories/note_asset_repository.py`, `api/src/app/services/note_asset_service.py`.
+- 2026-03-13: Markdown export is a zip contract with deterministic `note.md` and relative `assets/*` links.
+  - Rationale: preserve portability while keeping exported links self-contained.
+  - Impacted areas: `api/src/app/routes/export.py`, `api/src/app/export/markdown.py`.
+- 2026-03-13: Image upload transport uses JSON + base64 payload instead of multipart form.
+  - Rationale: remove multipart runtime dependency and keep API path stable across constrained runtimes.
+  - Impacted areas: `api/src/app/routes/media.py`, `shared/contracts/python/v1/media.py`, `shared/contracts/ts/v1/media.ts`, `web/src/lib/api-client.ts`.
+- 2026-03-13: Media reconciliation is backward-compatible with pre-E8 schemas.
+  - Rationale: prevent note-save failures when runtime DB has not yet applied `note_assets` migration.
+  - Impacted areas: `api/src/app/services/note_asset_service.py`, `api/src/app/routes/media.py`, `api/src/app/routes/export.py`.
 
 ## Epic E0: Project Foundations and Delivery Guardrails [Completed 2026-03-01]
 Context: The scoping doc assumes a multi-service system. Without shared conventions, implementation speed will collapse under integration drift. This epic creates the base structure, contract boundaries, and CI quality gates so all later epics are reliable.
@@ -460,7 +478,7 @@ Subtask ST7.2.3.a: Add editor command registry wiring.
 Subtask ST7.2.3.b: Add note title lookup path for link completion.
 Subtask ST7.2.3.c: Keep link representation in canonical JSON model.
 
-## Epic E8: Math, Images, and Export
+## Epic E8: Math, Images, and Export [Completed 2026-03-13]
 Context: Commercial note quality requires robust equations/media plus portable export.
 
 ### Story S8.1: Math authoring and rendering

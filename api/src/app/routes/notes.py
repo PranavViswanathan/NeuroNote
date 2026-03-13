@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.db.repositories.note_repository import NoteRepository
 from app.db.session import get_db_session
+from app.services.note_asset_service import reconcile_note_assets_for_note
 from shared.contracts.python.v1.note import (
     GetNoteResponse,
     ListNotesResponse,
@@ -46,6 +47,11 @@ def put_note(
             content_json=payload.content_json,
             content_text=payload.content_text,
             updated_at=payload.updated_at,
+        )
+        reconcile_note_assets_for_note(
+            note_id=payload.note_id,
+            content_json=payload.content_json,
+            session=session,
         )
     return SaveNoteResponse(
         note_id=record.note_id,

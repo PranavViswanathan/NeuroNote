@@ -9,6 +9,11 @@ import type {
   ProcessNoteResponse,
   ProcessStatusResponse,
 } from "../../../shared/contracts/ts/v1/process";
+import type {
+  DeleteImageResponse,
+  UploadImageRequest,
+  UploadImageResponse,
+} from "../../../shared/contracts/ts/v1/media";
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
@@ -101,4 +106,44 @@ export async function fetchProcessingStatus(
 ): Promise<ProcessStatusResponse> {
   const response = await fetch(`${baseUrl}/v1/process-status/${jobId}`);
   return parseJsonResponse<ProcessStatusResponse>(response);
+}
+
+export async function uploadNoteImage(
+  baseUrl: string,
+  noteId: string,
+  file: File,
+): Promise<UploadImageResponse> {
+  const raw = new Uint8Array(await file.arrayBuffer());
+  let binary = "";
+  for (let index = 0; index < raw.length; index += 1) {
+    binary += String.fromCharCode(raw[index] ?? 0);
+  }
+  const payload: UploadImageRequest = {
+    note_id: noteId,
+    filename: file.name || "image",
+    mime_type: file.type || "application/octet-stream",
+    content_base64: btoa(binary),
+  };
+
+  const response = await fetch(`${baseUrl}/v1/media/uploads`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseJsonResponse<UploadImageResponse>(response);
+}
+
+export async function deleteNoteImage(baseUrl: string, assetId: string): Promise<DeleteImageResponse> {
+  const response = await fetch(`${baseUrl}/v1/media/${assetId}`, {
+    method: "DELETE",
+  });
+  return parseJsonResponse<DeleteImageResponse>(response);
+}
+
+export async function exportNoteMarkdown(baseUrl: string, noteId: string): Promise<Blob> {
+  const response = await fetch(`${baseUrl}/v1/notes/${noteId}/export/markdown`);
+  if (!response.ok) {
+    throw new Error(`Request failed with status ${response.status}`);
+  }
+  return response.blob();
 }

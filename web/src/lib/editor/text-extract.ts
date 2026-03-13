@@ -22,6 +22,18 @@ function extractNodeLines(node: JsonRecord): string[] {
     return [node.text];
   }
 
+  if (node.type === "mathInline" || node.type === "mathBlock") {
+    const attrs = asRecord(node.attrs);
+    const latex = attrs && typeof attrs.latex === "string" ? attrs.latex.trim() : "";
+    return latex ? [`[math:${latex}]`] : [];
+  }
+
+  if (node.type === "image") {
+    const attrs = asRecord(node.attrs);
+    const alt = attrs && typeof attrs.alt === "string" ? attrs.alt.trim() : "";
+    return alt ? [`[image:${alt}]`] : ["[image]"];
+  }
+
   const children = getChildren(node);
   if (children.length === 0) {
     return [];

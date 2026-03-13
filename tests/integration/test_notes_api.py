@@ -49,6 +49,21 @@ def test_put_note_saves_and_versions(client: TestClient) -> None:
     assert second.json()["version"] == 2
 
 
+def test_put_note_succeeds_when_media_schema_unavailable(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    from app.services import note_asset_service
+
+    monkeypatch.setattr(note_asset_service, "note_assets_table_exists", lambda _session: False)
+
+    response = client.put(
+        "/v1/notes/note-no-media-schema",
+        json=_payload("note-no-media-schema", "First text", "2026-03-01T12:00:00Z"),
+    )
+    assert response.status_code == 200
+
+
 def test_get_note_returns_saved_payload(client: TestClient) -> None:
     client.put(
         "/v1/notes/note-fetch",

@@ -57,4 +57,22 @@ describe("extractPlainText", () => {
   it("returns empty string for empty documents", () => {
     expect(extractPlainText({ type: "doc", content: [] })).toBe("");
   });
+
+  it("includes deterministic fallback for math nodes", () => {
+    const doc = {
+      type: "doc",
+      content: [
+        {
+          type: "paragraph",
+          content: [
+            { type: "text", text: "Energy: " },
+            { type: "mathInline", attrs: { latex: "mc^2" } },
+          ],
+        },
+        { type: "mathBlock", attrs: { latex: "x^2 + y^2" } },
+      ],
+    };
+
+    expect(extractPlainText(doc)).toBe("Energy: [math:mc^2]\n[math:x^2 + y^2]");
+  });
 });

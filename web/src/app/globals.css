@@ -423,6 +423,39 @@ body {
   margin-bottom: 0;
 }
 
+.math-inline-node {
+  display: inline-block;
+  vertical-align: middle;
+  padding: 0 2px;
+}
+
+.math-block-node {
+  display: block;
+  margin: 10px 0;
+  padding: 10px 12px;
+  border: 1px solid #dbe3ef;
+  border-radius: 10px;
+  background: #fbfcff;
+  overflow-x: auto;
+}
+
+.math-inline-node.invalid,
+.math-block-node.invalid {
+  border-color: #e9b7bd;
+  background: #fff6f7;
+}
+
+.math-render-fallback {
+  color: #9a2330;
+  font-family: "SF Mono", Menlo, Monaco, Consolas, "Courier New", monospace;
+}
+
+.editor-image-node {
+  max-width: 100%;
+  border-radius: 10px;
+  border: 1px solid #dbe3ef;
+}
+
 .note-context-menu {
   list-style: none;
   margin: 0;

@@ -46,6 +46,9 @@ describe("TipTapEditor", () => {
     expect(screen.getByRole("button", { name: "H2" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "H3" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Checklist" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Math Inline" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Math Block" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Image" })).toBeInTheDocument();
   });
 
   it("opens command palette from keyboard fallback", async () => {

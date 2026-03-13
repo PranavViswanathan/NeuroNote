@@ -5,11 +5,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { EditorToolbar } from "./EditorToolbar";
 import { TipTapEditor, type TipTapUpdatePayload } from "./TipTapEditor";
 import {
+  exportNoteMarkdown,
   listNotes,
   fetchProcessingStatus,
   getNote,
   queueNoteProcessing,
   saveNote,
+  uploadNoteImage,
 } from "../../lib/api-client";
 import {
   coerceEditorDoc,
@@ -436,6 +438,33 @@ export function NoteEditor({
     [baseUrl],
   );
 
+  const handleUploadImage = useCallback(
+    async (file: File) => {
+      const uploaded = await uploadNoteImage(baseUrl, noteId, file);
+      return {
+        assetId: uploaded.asset_id,
+        src: `${baseUrl}${uploaded.src}`,
+        mimeType: uploaded.mime_type,
+      };
+    },
+    [baseUrl, noteId],
+  );
+
+  const handleExportMarkdown = useCallback(async () => {
+    try {
+      const archive = await exportNoteMarkdown(baseUrl, noteId);
+      const url = URL.createObjectURL(archive);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `${noteId}.zip`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setEditorError(null);
+    } catch {
+      setEditorError("Failed to export markdown");
+    }
+  }, [baseUrl, noteId]);
+
   return (
     <section className="note-editor" data-testid="note-editor">
       <EditorToolbar dirty={dirty} saveStatus={saveStatus} processStatus={processStatus} />
@@ -496,11 +525,25 @@ export function NoteEditor({
           Archived
         </label>
       </div>
+      <div className="note-editor-toggle-row">
+        <button
+          type="button"
+          className="editor-command-button"
+          onClick={() => {
+            void handleExportMarkdown();
+          }}
+          disabled={isLoading}
+          aria-label="Export markdown"
+        >
+          Export Markdown
+        </button>
+      </div>
       <TipTapEditor
         value={documentJson}
         onUpdate={handleEditorUpdate}
         onBlur={() => lifecycleRef.current?.onBlur()}
         disabled={isLoading}
+        onUploadImage={handleUploadImage}
         onSearchWikiLinks={searchWikiLinks}
         onCreateWikiLink={createWikiLinkNote}
         onEditorError={(message) => setEditorError(message)}

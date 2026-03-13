@@ -21,6 +21,9 @@ describe("EDITOR_COMMANDS", () => {
         "blockquote",
         "codeBlock",
         "divider",
+        "mathInline",
+        "mathBlock",
+        "image",
       ]),
     );
   });

@@ -103,3 +103,22 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
 - Fixed slash-command Enter behavior to use TipTap `editorProps.handleKeyDown` instead of relying only on wrapper `onKeyDown`.
 - Added deterministic key-action resolver (`web/src/lib/editor/key-handlers.ts`) with regression tests.
 - Result: pressing Enter on slash command now executes selected command transform instead of inserting a newline.
+
+## 2026-03-13 (Epic E8 Delivery Notes)
+- Added media and export API surface:
+  - `POST /v1/media/uploads` (JSON base64 image payload),
+  - `GET /v1/media/{asset_id}`,
+  - `DELETE /v1/media/{asset_id}`,
+  - `GET /v1/notes/{note_id}/export/markdown` (zip download).
+- Added `note_assets` migration/model/repository with note-save reconciliation that marks unreferenced assets deleted and removes local files.
+- Added markdown renderer for deterministic math/image export output.
+- Added TipTap math/image command entries and custom node extensions for persisted math/image content.
+- Validation/runtime notes:
+  - local `uv run` panic persists in this environment; validation used `api/.venv/bin/{pytest,ruff,mypy}`.
+  - local vitest/esbuild mismatch persists; canonical web validation executed in compose runtime.
+  - Added compatibility guard for pre-migration DBs: note-save reconciliation no-ops when `note_assets` is absent, while media endpoints return explicit migration-required (`503`) responses.
+
+## 2026-03-13 (Math Rendering Hardening)
+- Math input normalization now strips optional `$...$` / `$$...$$` delimiters before persistence and rendering.
+- Inline authoring now supports direct typing of `$...$` which auto-converts to a `mathInline` node.
+- This closes the UX gap where wrapped expressions stayed visible as raw delimiter text in the editor.
