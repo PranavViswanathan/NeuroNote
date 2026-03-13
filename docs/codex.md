@@ -10,3 +10,13 @@
 9. Update codebase relevant documentation.
 10. Delete temporary file
 11. For bugs always prioritise permanent fixes and NOT quick fixes
+12. For UI/UX work, define explicit acceptance criteria in the temp plan (interaction, loading, error, keyboard,
+  accessibility).
+13. For frontend behavior changes, write/adjust tests first for all user-visible scenarios, then implement.
+14. Every destructive action must have both mouse and keyboard access parity.
+15. Do not rely on `onBlur` as the only trigger for critical UX flows (filters, saves, actions).
+16. Use a consistent visual system (tokens/variables, spacing scale, typography scale); avoid ad-hoc styling.
+17. Frontend validation gate is mandatory: `npm --prefix web run typecheck` and web tests (use compose runtime if
+local toolchain is unstable).
+18. When local runtime is platform-broken, use Docker Compose as canonical validation path and document it in `docs/
+decisions.md`.

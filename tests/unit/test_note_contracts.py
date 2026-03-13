@@ -20,11 +20,17 @@ def test_save_note_request_accepts_valid_payload() -> None:
     request = SaveNoteRequest(
         note_id="note-1",
         note_title="Graph foundations",
+        subject_id="inbox",
+        tags=["ml", "graph"],
+        is_pinned=True,
+        is_archived=False,
         content_json={"type": "doc", "content": []},
         content_text="Knowledge graph note",
         updated_at="2026-03-01T10:00:00Z",
     )
     assert request.note_id == "note-1"
+    assert request.subject_id == "inbox"
+    assert request.tags == ["ml", "graph"]
 
 
 def test_save_note_request_rejects_empty_note_id() -> None:
@@ -51,6 +57,10 @@ def test_get_note_response_shape() -> None:
     response = GetNoteResponse(
         note_id="note-1",
         note_title="Graph foundations",
+        subject_id="inbox",
+        tags=["ml"],
+        is_pinned=False,
+        is_archived=False,
         content_json={"type": "doc", "content": []},
         content_text="Knowledge graph note",
         updated_at="2026-03-01T10:00:00Z",
@@ -65,6 +75,10 @@ def test_list_notes_response_shape() -> None:
             NoteSummary(
                 note_id="note-1",
                 note_title="Graph foundations",
+                subject_id="inbox",
+                tags=["ml"],
+                is_pinned=True,
+                is_archived=False,
                 content_text="Knowledge graph note",
                 updated_at="2026-03-01T10:00:00Z",
                 version=1,
@@ -81,6 +95,10 @@ def test_ts_note_contract_contains_required_fields() -> None:
         "interface SaveNoteRequest",
         "note_id: string",
         "note_title: string",
+        "subject_id: string",
+        "tags: string[]",
+        "is_pinned: boolean",
+        "is_archived: boolean",
         "content_json: Record<string, unknown>",
         "content_text: string",
         "updated_at: string",

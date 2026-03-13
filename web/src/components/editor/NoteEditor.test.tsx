@@ -76,6 +76,10 @@ describe("NoteEditor", () => {
     vi.mocked(getNote).mockResolvedValue({
       note_id: "note-1",
       note_title: "Loaded title",
+      subject_id: "inbox",
+      tags: ["ml"],
+      is_pinned: true,
+      is_archived: false,
       content_json: {
         type: "doc",
         content: [
@@ -108,6 +112,10 @@ describe("NoteEditor", () => {
     vi.mocked(getNote).mockResolvedValue({
       note_id: "note-2",
       note_title: "Initial title",
+      subject_id: "inbox",
+      tags: [],
+      is_pinned: false,
+      is_archived: false,
       content_json: { type: "doc", content: [] },
       content_text: "",
       updated_at: "2026-03-01T13:01:00Z",
@@ -151,6 +159,10 @@ describe("NoteEditor", () => {
     vi.mocked(getNote).mockResolvedValue({
       note_id: "note-title-1",
       note_title: "Old title",
+      subject_id: "inbox",
+      tags: [],
+      is_pinned: false,
+      is_archived: false,
       content_json: { type: "doc", content: [] },
       content_text: "",
       updated_at: "2026-03-01T13:01:00Z",
@@ -194,6 +206,10 @@ describe("NoteEditor", () => {
     vi.mocked(getNote).mockResolvedValue({
       note_id: "note-3",
       note_title: "Title 3",
+      subject_id: "inbox",
+      tags: [],
+      is_pinned: false,
+      is_archived: false,
       content_json: { type: "doc", content: [] },
       content_text: "",
       updated_at: "2026-03-01T13:02:00Z",
@@ -223,5 +239,57 @@ describe("NoteEditor", () => {
     await waitFor(() =>
       expect(screen.getByTestId("save-status")).toHaveTextContent("error"),
     );
+  });
+
+  it("autosaves organization metadata updates", async () => {
+    vi.mocked(getNote).mockResolvedValue({
+      note_id: "note-meta-1",
+      note_title: "Meta title",
+      subject_id: "inbox",
+      tags: ["graph"],
+      is_pinned: false,
+      is_archived: false,
+      content_json: { type: "doc", content: [] },
+      content_text: "",
+      updated_at: "2026-03-01T13:03:00Z",
+      version: 1,
+    });
+    vi.mocked(saveNote).mockResolvedValue({
+      note_id: "note-meta-1",
+      saved_at: "2026-03-01T13:03:01Z",
+      version: 2,
+    });
+    vi.mocked(queueNoteProcessing).mockResolvedValue({
+      job_id: "job-meta-1",
+      status: "queued",
+    });
+
+    render(
+      <NoteEditor
+        noteId="note-meta-1"
+        baseUrl="http://localhost:8000"
+        autosaveDebounceMs={10}
+        processDebounceMs={30}
+      />,
+    );
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Subject")).not.toBeDisabled(),
+    );
+
+    fireEvent.change(screen.getByLabelText("Subject"), {
+      target: { value: "ml" },
+    });
+    fireEvent.change(screen.getByLabelText("Tags"), {
+      target: { value: "graph, nlp" },
+    });
+    fireEvent.click(screen.getByLabelText("Pinned"));
+
+    await waitFor(() => expect(saveNote).toHaveBeenCalled());
+    expect(vi.mocked(saveNote).mock.calls.at(-1)?.[1]).toMatchObject({
+      subject_id: "ml",
+      tags: ["graph", "nlp"],
+      is_pinned: true,
+    });
   });
 });

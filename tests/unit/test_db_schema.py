@@ -9,13 +9,15 @@ def test_core_tables_exist(configured_db: None) -> None:
     inspector = inspect(get_engine())
     table_names = set(inspector.get_table_names())
 
-    assert {"subjects", "notes", "blocks", "tags", "entity_aliases"}.issubset(table_names)
+    assert {"subjects", "notes", "blocks", "tags", "note_tags", "entity_aliases"}.issubset(table_names)
 
 
 def test_foreign_keys_and_indexes_exist(configured_db: None) -> None:
     inspector = inspect(get_engine())
     note_columns = {column["name"] for column in inspector.get_columns("notes")}
     assert "note_title" in note_columns
+    assert "is_pinned" in note_columns
+    assert "is_archived" in note_columns
 
     note_fks = inspector.get_foreign_keys("notes")
     assert any(
@@ -43,3 +45,13 @@ def test_foreign_keys_and_indexes_exist(configured_db: None) -> None:
     alias_indexes = {index["name"] for index in inspector.get_indexes("entity_aliases")}
     assert "ix_entity_aliases_alias_text" in alias_indexes
     assert "ix_entity_aliases_canonical_entity_id" in alias_indexes
+
+    note_tag_fks = inspector.get_foreign_keys("note_tags")
+    assert any(
+        fk.get("referred_table") == "notes" and fk.get("constrained_columns") == ["note_id"]
+        for fk in note_tag_fks
+    )
+    assert any(
+        fk.get("referred_table") == "tags" and fk.get("constrained_columns") == ["tag_id"]
+        for fk in note_tag_fks
+    )

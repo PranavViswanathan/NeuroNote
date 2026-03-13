@@ -3,10 +3,24 @@ from __future__ import annotations
 from fastapi.testclient import TestClient
 
 
-def _payload(note_id: str, text: str, updated_at: str) -> dict[str, object]:
+def _payload(
+    note_id: str,
+    text: str,
+    updated_at: str,
+    *,
+    note_title: str | None = None,
+    subject_id: str = "inbox",
+    tags: list[str] | None = None,
+    is_pinned: bool = False,
+    is_archived: bool = False,
+) -> dict[str, object]:
     return {
         "note_id": note_id,
-        "note_title": f"Title for {note_id}",
+        "note_title": note_title or f"Title for {note_id}",
+        "subject_id": subject_id,
+        "tags": tags or [],
+        "is_pinned": is_pinned,
+        "is_archived": is_archived,
         "content_json": {
             "type": "doc",
             "content": [
@@ -38,7 +52,14 @@ def test_put_note_saves_and_versions(client: TestClient) -> None:
 def test_get_note_returns_saved_payload(client: TestClient) -> None:
     client.put(
         "/v1/notes/note-fetch",
-        json=_payload("note-fetch", "Fetch text", "2026-03-01T12:02:00Z"),
+        json=_payload(
+            "note-fetch",
+            "Fetch text",
+            "2026-03-01T12:02:00Z",
+            subject_id="ml",
+            tags=["graph", "ml"],
+            is_pinned=True,
+        ),
     )
 
     response = client.get("/v1/notes/note-fetch")
@@ -46,6 +67,10 @@ def test_get_note_returns_saved_payload(client: TestClient) -> None:
     body = response.json()
     assert body["note_id"] == "note-fetch"
     assert body["note_title"] == "Title for note-fetch"
+    assert body["subject_id"] == "ml"
+    assert set(body["tags"]) == {"graph", "ml"}
+    assert body["is_pinned"] is True
+    assert body["is_archived"] is False
     assert body["content_text"] == "Fetch text"
     assert body["version"] == 1
 
@@ -80,21 +105,96 @@ def test_put_note_rejects_invalid_payload(client: TestClient) -> None:
 def test_list_notes_returns_saved_items_with_total(client: TestClient) -> None:
     client.put(
         "/v1/notes/note-list-1",
-        json=_payload("note-list-1", "First list value", "2026-03-01T12:10:00Z"),
+        json=_payload(
+            "note-list-1",
+            "First list value",
+            "2026-03-01T12:10:00Z",
+            subject_id="ml",
+            tags=["graph"],
+            is_pinned=True,
+        ),
     )
     client.put(
         "/v1/notes/note-list-2",
-        json=_payload("note-list-2", "Second list value", "2026-03-01T12:11:00Z"),
+        json=_payload(
+            "note-list-2",
+            "Second list value",
+            "2026-03-01T12:11:00Z",
+            subject_id="math",
+            tags=["algebra"],
+            is_archived=True,
+        ),
     )
 
     response = client.get("/v1/notes?limit=10&offset=0")
     assert response.status_code == 200
 
     body = response.json()
-    assert body["total"] == 2
+    assert body["total"] == 1
     note_ids = {item["note_id"] for item in body["items"]}
-    assert note_ids == {"note-list-1", "note-list-2"}
+    assert note_ids == {"note-list-1"}
     assert all(isinstance(item["note_title"], str) for item in body["items"])
+
+
+def test_list_notes_supports_search_and_metadata_filters(client: TestClient) -> None:
+    client.put(
+        "/v1/notes/filter-1",
+        json=_payload(
+            "filter-1",
+            "Graph relation extraction",
+            "2026-03-01T12:13:00Z",
+            note_title="Graph basics",
+            subject_id="ml",
+            tags=["graph", "nlp"],
+            is_pinned=True,
+        ),
+    )
+    client.put(
+        "/v1/notes/filter-2",
+        json=_payload(
+            "filter-2",
+            "Matrix decomposition",
+            "2026-03-01T12:14:00Z",
+            note_title="Linear algebra",
+            subject_id="math",
+            tags=["algebra"],
+            is_pinned=False,
+        ),
+    )
+    client.put(
+        "/v1/notes/filter-3",
+        json=_payload(
+            "filter-3",
+            "Archived graph note",
+            "2026-03-01T12:15:00Z",
+            note_title="Old graph",
+            subject_id="ml",
+            tags=["graph"],
+            is_archived=True,
+        ),
+    )
+
+    filtered = client.get(
+        "/v1/notes",
+        params={
+            "limit": 10,
+            "offset": 0,
+            "search": "graph",
+            "subject_id": "ml",
+            "tag": "graph",
+            "is_archived": "false",
+        },
+    )
+    assert filtered.status_code == 200
+    filtered_body = filtered.json()
+    assert filtered_body["total"] == 1
+    assert filtered_body["items"][0]["note_id"] == "filter-1"
+
+    archived = client.get("/v1/notes", params={"is_archived": "true"})
+    assert archived.status_code == 200
+    archived_body = archived.json()
+    assert archived_body["total"] == 1
+    assert archived_body["items"][0]["note_id"] == "filter-3"
 
 
 def test_delete_note_removes_record(client: TestClient) -> None:

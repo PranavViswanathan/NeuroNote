@@ -50,3 +50,56 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
 - Fixed graph embedding persistence to always target `public.note_embeddings` instead of relying on session `search_path`.
 - Added compatibility copy-forward from `ag_catalog.note_embeddings` to `public.note_embeddings` inside repository table bootstrap.
 - Added regression test ensuring note embeddings land in `public` schema.
+
+## 2026-03-12 (Commercial Roadmap Rebaseline Notes)
+- Planning rebaseline:
+  - Legacy unfinished epics (`E6-E9`) are marked deprecated in `docs/plan.md`.
+  - New authoritative commercial-track roadmap is `E6-E10` (`Workspace`, `Editor Commands`, `Math/Images/Export`, `Guided Graph`, `Launch Hardening`).
+- Product scope alignment notes:
+  - Canonical editor persistence remains TipTap JSON; markdown remains export capability, not canonical storage.
+  - v1 editor target is Notion-like core blocks and command UX, not full Notion parity.
+  - v1 math target is LaTeX inline + block.
+  - v1 image target is upload API + local disk with storage adapter boundary for future object storage.
+  - v1 graph target is local-first + guided global on explicit action.
+
+## 2026-03-12 (Epic E6 Delivery Notes)
+- Added workspace shell (`web/src/components/workspace/NotesWorkspace.tsx`) and switched root/note routes to workspace-driven navigation.
+- Added note list client capabilities (`listNotes`, `deleteNote`) and maintained existing note save/get API boundaries.
+- Added `note_tags` association model/migration and organization metadata fields on notes (`subject_id`, `is_pinned`, `is_archived`).
+- Added organization-aware list semantics in API with default archive exclusion and explicit query controls.
+- Validation/runtime notes:
+  - Local `uv run` remains unstable in this environment (panic); Python checks/tests validated through `api/.venv/bin/*`.
+  - Local host `vitest` remains blocked by platform-specific `esbuild` mismatch; web tests validated in compose Node 20 runtime.
+
+## 2026-03-12 (Workspace UI Stabilization)
+- Reworked workspace layout to a commercial baseline with explicit sidebar/editor panels and app-wide styling in `web/src/app/globals.css`.
+- Moved note destructive/edit actions to right-click context menu (`Rename`, `Pin/Unpin`, `Delete`) and removed always-visible rename/delete header controls.
+- Split list rendering so pinned notes live in `Pinned` while `All notes` excludes pinned entries, preventing duplicate visual rows.
+- Added explicit TipTap shell/editor classes and ProseMirror styles to enforce immediate text visibility and multiline editing ergonomics.
+- Added regression coverage for context-menu actions, pinned/all list separation, duplicate-create guard, and TipTap initial content rendering.
+
+## 2026-03-12 (Workspace UX Hardening)
+- Changed filter behavior to debounced reactive refresh (search/subject/tag/archive) instead of blur-triggered refresh.
+- Added note-row content preview snippets to improve scanability and reduce open-click churn.
+- Added keyboard access path for note actions (`Shift+F10` / `ContextMenu` key opens note context menu).
+- Added explicit loading message for list fetches and retry panel for fetch errors.
+- Added regression tests for debounce refresh, preview rendering, keyboard context menu opening, loading state, and retry success flow.
+
+## 2026-03-12 (Epic E7 Delivery Notes)
+- Added editor command registry (`web/src/lib/editor/commands.ts`) and shared command filtering/slash-trigger matching helpers.
+- Added wiki-link parsing/normalization helpers (`web/src/lib/editor/wiki-links.ts`) with regression coverage.
+- Upgraded TipTap editor UX:
+  - command toolbar for core blocks,
+  - slash command menu,
+  - `Cmd/Ctrl+K` command palette fallback,
+  - `[[wiki-link]]` autocomplete with quick-create option for unresolved titles.
+- Added NoteEditor wiring for wiki-link suggestion lookup and unresolved linked-note creation through existing note APIs.
+- Validation/runtime notes:
+  - local host vitest remains blocked by platform-specific `esbuild` mismatch;
+  - canonical validation executed in compose runtime (`docker compose -f infra/docker-compose.yml run --rm web npm run test`);
+  - web typecheck passed and compose web tests passed (`45` tests).
+
+## 2026-03-12 (Slash Enter Command Fix)
+- Fixed slash-command Enter behavior to use TipTap `editorProps.handleKeyDown` instead of relying only on wrapper `onKeyDown`.
+- Added deterministic key-action resolver (`web/src/lib/editor/key-handlers.ts`) with regression tests.
+- Result: pressing Enter on slash command now executes selected command transform instead of inserting a newline.

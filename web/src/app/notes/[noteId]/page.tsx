@@ -1,4 +1,4 @@
-import { NoteEditor } from "../../../components/editor/NoteEditor";
+import { NotesWorkspace } from "../../../components/workspace/NotesWorkspace";
 
 interface NotePageProps {
   params: {
@@ -12,8 +12,9 @@ export default function NotePage({ params }: NotePageProps) {
   const baseUrl = process.env.NEXT_PUBLIC_API_BASE_URL ?? DEFAULT_API_BASE_URL;
 
   return (
-    <main>
-      <NoteEditor noteId={params.noteId} baseUrl={baseUrl} />
-    </main>
+    <NotesWorkspace
+      baseUrl={baseUrl}
+      initialNoteId={params.noteId}
+    />
   );
 }

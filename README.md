@@ -3,8 +3,8 @@
 NeuroNote is a monorepo with a web frontend, a Python API service, shared contracts, and infrastructure configuration.
 
 ## Services
-- `web/`: Next.js frontend with note editor (`note_title` + content), autosave orchestration, and API clients.
-- `api/`: FastAPI service for health, note persistence, and note-processing endpoints.
+- `web/`: Next.js frontend with workspace sidebar (create/open/right-click actions), pinned/all note sections, organization controls, editor autosave orchestration, and API clients.
+- `api/`: FastAPI service for health, note persistence/listing, organization-aware note queries, and note-processing endpoints.
 - `shared/`: versioned request/response contracts shared across services.
 - `infra/`: local infrastructure orchestration.
 - `tests/`: repository-level structure and integration tests.
@@ -31,7 +31,7 @@ This is the default way to run NeuroNote now. API commands still use `uv`, but i
 5. Run API tests:
    - `make compose-test`
 6. Open browser:
-   - `http://localhost:3000/notes/sample-note`
+   - `http://localhost:3000`
 7. Stop stack:
    - `make compose-down`
 
@@ -40,6 +40,7 @@ Schema ownership is migration-first:
 - PostgreSQL auto-create is disabled in app startup logic.
 - Migration `20260307_0002` is idempotent for pre-existing `entity_aliases` tables.
 - Migration `20260311_0003` is idempotent for pre-existing `notes.note_title` columns.
+- Migration `20260312_0004` is idempotent for workspace-organization schema (`notes` flags + `note_tags`).
 
 ### Common Commands
 - API checks: `make compose-check`
@@ -72,7 +73,7 @@ Use this only if you explicitly want a non-container local run.
 curl -sS -X PUT http://127.0.0.1:8000/v1/notes/demo-note \
   -H 'Content-Type: application/json' \
   --data-binary @- <<'JSON'
-{"note_id":"demo-note","note_title":"Graph Reasoning Notes","content_json":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Machine Learning improves Graph Reasoning across Notes"}]}]},"content_text":"Machine Learning improves Graph Reasoning across Notes","updated_at":"2026-03-07T12:00:00Z"}
+{"note_id":"demo-note","note_title":"Graph Reasoning Notes","subject_id":"inbox","tags":["graph","ml"],"is_pinned":true,"is_archived":false,"content_json":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Machine Learning improves Graph Reasoning across Notes"}]}]},"content_text":"Machine Learning improves Graph Reasoning across Notes","updated_at":"2026-03-07T12:00:00Z"}
 JSON
 ```
 2. Trigger processing:
@@ -119,3 +120,43 @@ JSON
 ```
 3. Check calibration metrics:
    - `curl http://127.0.0.1:8000/v1/entity-aliases/calibration`
+
+## Validate Workspace Filters
+The notes list endpoint supports workspace organization filters:
+
+```bash
+curl -sS "http://127.0.0.1:8000/v1/notes?limit=20&offset=0&search=graph&subject_id=inbox&tag=ml&is_archived=false"
+```
+
+Useful query params:
+- `search`: title/body text search (case-insensitive)
+- `subject_id`: filter by subject/notebook id
+- `tag`: filter by normalized tag
+- `is_archived`: defaults to `false`; set `true` to list archived notes
+- `is_pinned`: optional pinned-only filter (`true`/`false`)
+
+## Validate Workspace UI Behavior
+1. Open `http://localhost:3000`.
+2. Confirm editor text is visible immediately in the selected note without clicking into the canvas first.
+3. Confirm the editor supports multiline content (paragraphs render as separate lines).
+4. Right-click a note row in `Pinned` or `All notes`:
+   - `Rename note` prompts and updates title.
+   - `Pin note` / `Unpin note` moves notes between `Pinned` and `All notes`.
+   - `Delete note` removes the note from the list.
+5. Validate interaction quality:
+   - Filter inputs auto-refresh list after a short debounce (no blur required).
+   - `Shift+F10` on a focused note row opens the same context menu.
+   - On API load failure, use `Retry` to re-fetch list content.
+
+## Validate Editor Command Surface (Epic E7)
+1. Open any note editor in `http://localhost:3000`.
+2. Use command buttons above the editor and confirm block transforms apply:
+   - `Paragraph`, `H1`, `H2`, `H3`, `Bullet List`, `Numbered List`, `Checklist`, `Quote`, `Code Block`, `Divider`.
+3. In the editor, type `/h1` and press `Enter`:
+   - Slash menu appears and converts the current block to H1.
+4. Press `Cmd+K` (macOS) or `Ctrl+K` (Windows/Linux):
+   - Command palette opens, supports keyboard selection, and executes with `Enter`.
+5. Type `[[` followed by part of a known note title:
+   - Wiki-link suggestions appear.
+6. Type `[[Some New Linked Note` and press `Enter`:
+   - Quick-create option creates that note and inserts `[[Some New Linked Note]]` inline.

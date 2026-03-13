@@ -39,6 +39,10 @@ def put_note(
         record = repository.upsert_note(
             note_id=payload.note_id,
             note_title=payload.note_title,
+            subject_id=payload.subject_id,
+            tags=payload.tags,
+            is_pinned=payload.is_pinned,
+            is_archived=payload.is_archived,
             content_json=payload.content_json,
             content_text=payload.content_text,
             updated_at=payload.updated_at,
@@ -64,6 +68,10 @@ def fetch_note(
     return GetNoteResponse(
         note_id=record.note_id,
         note_title=record.note_title,
+        subject_id=record.subject_id,
+        tags=record.tags,
+        is_pinned=record.is_pinned,
+        is_archived=record.is_archived,
         content_json=record.content_json,
         content_text=record.content_text,
         updated_at=record.updated_at,
@@ -75,14 +83,31 @@ def fetch_note(
 def list_notes(
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    search: str | None = Query(default=None),
+    subject_id: str | None = Query(default=None, min_length=1),
+    tag: str | None = Query(default=None, min_length=1),
+    is_archived: bool | None = Query(default=False),
+    is_pinned: bool | None = Query(default=None),
     session: Session = Depends(get_db_session),
 ) -> ListNotesResponse:
-    items, total = NoteRepository(session).list_notes(limit=limit, offset=offset)
+    items, total = NoteRepository(session).list_notes(
+        limit=limit,
+        offset=offset,
+        search=search,
+        subject_id=subject_id,
+        tag=tag,
+        is_archived=is_archived,
+        is_pinned=is_pinned,
+    )
     return ListNotesResponse(
         items=[
             NoteSummary(
                 note_id=item.note_id,
                 note_title=item.note_title,
+                subject_id=item.subject_id,
+                tags=item.tags,
+                is_pinned=item.is_pinned,
+                is_archived=item.is_archived,
                 content_text=item.content_text,
                 updated_at=item.updated_at,
                 version=item.version,

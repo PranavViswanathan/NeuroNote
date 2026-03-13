@@ -8,10 +8,10 @@ interface EditorToolbarProps {
 
 export function EditorToolbar({ dirty, saveStatus, processStatus }: EditorToolbarProps) {
   return (
-    <div data-testid="editor-toolbar">
-      <span data-testid="dirty-flag">{dirty ? "dirty" : "clean"}</span>
-      <span data-testid="save-status">{saveStatus}</span>
-      <span data-testid="process-status">{processStatus}</span>
+    <div className="editor-toolbar" data-testid="editor-toolbar">
+      <span className="editor-toolbar-pill" data-testid="dirty-flag">{dirty ? "dirty" : "clean"}</span>
+      <span className="editor-toolbar-pill" data-testid="save-status">{saveStatus}</span>
+      <span className="editor-toolbar-pill" data-testid="process-status">{processStatus}</span>
     </div>
   );
 }

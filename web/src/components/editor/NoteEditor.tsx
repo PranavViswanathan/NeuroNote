@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { EditorToolbar } from "./EditorToolbar";
 import { TipTapEditor, type TipTapUpdatePayload } from "./TipTapEditor";
 import {
+  listNotes,
   fetchProcessingStatus,
   getNote,
   queueNoteProcessing,
@@ -19,19 +20,44 @@ import { extractPlainText } from "../../lib/editor/text-extract";
 import { createNoteLifecycleController } from "../../lib/orchestration/note-lifecycle";
 import { createProcessPollingController } from "../../lib/orchestration/process-polling";
 import type { ProcessStatus, SaveStatus } from "../../lib/state/note-store";
+import type { WikiLinkSuggestion } from "./TipTapEditor";
 
 interface NoteEditorProps {
   noteId: string;
   baseUrl: string;
   autosaveDebounceMs?: number;
   processDebounceMs?: number;
+  onMetadataSaved?: (payload: NoteMetadataPayload) => void;
 }
 
 interface NoteSnapshot {
   noteTitle: string;
+  subjectId: string;
+  tags: string[];
+  isPinned: boolean;
+  isArchived: boolean;
   documentJson: EditorDoc;
   plainText: string;
   updatedAt: string;
+}
+
+interface NoteMetadataPayload {
+  noteId: string;
+  noteTitle: string;
+  subjectId: string;
+  tags: string[];
+  isPinned: boolean;
+  isArchived: boolean;
+  updatedAt: string;
+  version: number;
+}
+
+interface PersistedMetadataSnapshot {
+  noteTitle: string;
+  subjectId: string;
+  tags: string[];
+  isPinned: boolean;
+  isArchived: boolean;
 }
 
 function makeHash(content: string): string {
@@ -42,23 +68,62 @@ function makeHash(content: string): string {
   return `h${Math.abs(hash)}`;
 }
 
+function makeGeneratedNoteId(): string {
+  return `note-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+}
+
+function parseTagsInput(value: string): string[] {
+  const seen = new Set<string>();
+  const tags: string[] = [];
+  for (const raw of value.split(",")) {
+    const normalized = raw.trim().toLowerCase();
+    if (!normalized || seen.has(normalized)) {
+      continue;
+    }
+    seen.add(normalized);
+    tags.push(normalized);
+  }
+  return tags;
+}
+
+function formatTags(tags: string[]): string {
+  return tags.join(", ");
+}
+
+function sameTags(left: string[], right: string[]): boolean {
+  if (left.length !== right.length) {
+    return false;
+  }
+  return left.every((tag, index) => tag === right[index]);
+}
+
 export function NoteEditor({
   noteId,
   baseUrl,
   autosaveDebounceMs = 800,
   processDebounceMs = 3000,
+  onMetadataSaved,
 }: NoteEditorProps) {
   const [documentJson, setDocumentJson] = useState<EditorDoc>(createEmptyEditorDoc());
   const [noteTitle, setNoteTitle] = useState("Untitled");
+  const [subjectId, setSubjectId] = useState("inbox");
+  const [tagsInput, setTagsInput] = useState("");
+  const [isPinned, setIsPinned] = useState(false);
+  const [isArchived, setIsArchived] = useState(false);
   const [plainText, setPlainText] = useState("");
   const [dirty, setDirty] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [processStatus, setProcessStatus] = useState<ProcessStatus>("idle");
+  const [editorError, setEditorError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [updatedAt, setUpdatedAt] = useState(new Date().toISOString());
 
   const latestSnapshotRef = useRef<NoteSnapshot>({
     noteTitle: "Untitled",
+    subjectId: "inbox",
+    tags: [],
+    isPinned: false,
+    isArchived: false,
     documentJson: createEmptyEditorDoc(),
     plainText: "",
     updatedAt,
@@ -66,10 +131,26 @@ export function NoteEditor({
   const activeJobIdRef = useRef<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof createProcessPollingController> | null>(null);
   const lifecycleRef = useRef<ReturnType<typeof createNoteLifecycleController> | null>(null);
+  const persistedMetadataRef = useRef<PersistedMetadataSnapshot>({
+    noteTitle: "Untitled",
+    subjectId: "inbox",
+    tags: [],
+    isPinned: false,
+    isArchived: false,
+  });
 
   useEffect(() => {
-    latestSnapshotRef.current = { noteTitle, documentJson, plainText, updatedAt };
-  }, [noteTitle, documentJson, plainText, updatedAt]);
+    latestSnapshotRef.current = {
+      noteTitle,
+      subjectId: subjectId.trim() || "inbox",
+      tags: parseTagsInput(tagsInput),
+      isPinned,
+      isArchived,
+      documentJson,
+      plainText,
+      updatedAt,
+    };
+  }, [noteTitle, subjectId, tagsInput, isPinned, isArchived, documentJson, plainText, updatedAt]);
 
   useEffect(() => {
     let isMounted = true;
@@ -84,19 +165,43 @@ export function NoteEditor({
         const nextDoc = coerceEditorDoc(note.content_json);
         const nextText = note.content_text || extractPlainText(nextDoc);
         const nextTitle = note.note_title || "Untitled";
+        const nextSubject = note.subject_id || "inbox";
+        const nextTags = note.tags || [];
         setNoteTitle(nextTitle);
+        setSubjectId(nextSubject);
+        setTagsInput(formatTags(nextTags));
+        setIsPinned(note.is_pinned);
+        setIsArchived(note.is_archived);
         setDocumentJson(nextDoc);
         setPlainText(nextText);
         setUpdatedAt(note.updated_at);
+        persistedMetadataRef.current = {
+          noteTitle: nextTitle,
+          subjectId: nextSubject,
+          tags: nextTags,
+          isPinned: note.is_pinned,
+          isArchived: note.is_archived,
+        };
       })
       .catch(() => {
         if (!isMounted) {
           return;
         }
         setNoteTitle("Untitled");
+        setSubjectId("inbox");
+        setTagsInput("");
+        setIsPinned(false);
+        setIsArchived(false);
         setDocumentJson(createEmptyEditorDoc());
         setPlainText("");
         setUpdatedAt(new Date().toISOString());
+        persistedMetadataRef.current = {
+          noteTitle: "Untitled",
+          subjectId: "inbox",
+          tags: [],
+          isPinned: false,
+          isArchived: false,
+        };
       })
       .finally(() => {
         if (isMounted) {
@@ -117,22 +222,54 @@ export function NoteEditor({
     setSaveStatus("saving");
 
     try {
-      await saveNote(baseUrl, {
+      const saveResult = await saveNote(baseUrl, {
         note_id: noteId,
         note_title: snapshot.noteTitle.trim() || "Untitled",
+        subject_id: snapshot.subjectId || "inbox",
+        tags: snapshot.tags,
+        is_pinned: snapshot.isPinned,
+        is_archived: snapshot.isArchived,
         content_json: snapshot.documentJson,
         content_text: snapshot.plainText || " ",
         updated_at: snapshot.updatedAt,
       });
 
       setSaveStatus("saved");
+      const nextPersistedMetadata: PersistedMetadataSnapshot = {
+        noteTitle: snapshot.noteTitle.trim() || "Untitled",
+        subjectId: snapshot.subjectId || "inbox",
+        tags: snapshot.tags,
+        isPinned: snapshot.isPinned,
+        isArchived: snapshot.isArchived,
+      };
+      const previousPersistedMetadata = persistedMetadataRef.current;
+      const metadataChanged =
+        previousPersistedMetadata.noteTitle !== nextPersistedMetadata.noteTitle
+        || previousPersistedMetadata.subjectId !== nextPersistedMetadata.subjectId
+        || previousPersistedMetadata.isPinned !== nextPersistedMetadata.isPinned
+        || previousPersistedMetadata.isArchived !== nextPersistedMetadata.isArchived
+        || !sameTags(previousPersistedMetadata.tags, nextPersistedMetadata.tags);
+
+      persistedMetadataRef.current = nextPersistedMetadata;
+      if (metadataChanged && onMetadataSaved) {
+        onMetadataSaved({
+          noteId,
+          noteTitle: nextPersistedMetadata.noteTitle,
+          subjectId: nextPersistedMetadata.subjectId,
+          tags: nextPersistedMetadata.tags,
+          isPinned: nextPersistedMetadata.isPinned,
+          isArchived: nextPersistedMetadata.isArchived,
+          updatedAt: snapshot.updatedAt,
+          version: saveResult.version,
+        });
+      }
       if (snapshot.updatedAt === latestSnapshotRef.current.updatedAt) {
         setDirty(false);
       }
     } catch {
       setSaveStatus("error");
     }
-  }, [baseUrl, noteId]);
+  }, [baseUrl, noteId, onMetadataSaved]);
 
   const startProcessing = useCallback(async () => {
     const snapshot = latestSnapshotRef.current;
@@ -203,6 +340,7 @@ export function NoteEditor({
     setUpdatedAt(nextUpdatedAt);
     setDirty(true);
     setSaveStatus("idle");
+    setEditorError(null);
     lifecycleRef.current?.onEdit();
   }, []);
 
@@ -213,17 +351,98 @@ export function NoteEditor({
       setUpdatedAt(nextUpdatedAt);
       setDirty(true);
       setSaveStatus("idle");
+      setEditorError(null);
       lifecycleRef.current?.onEdit();
     },
     [],
   );
 
+  const handleSubjectChange = useCallback((nextSubjectId: string) => {
+    const nextUpdatedAt = new Date().toISOString();
+    setSubjectId(nextSubjectId);
+    setUpdatedAt(nextUpdatedAt);
+    setDirty(true);
+    setSaveStatus("idle");
+    setEditorError(null);
+    lifecycleRef.current?.onEdit();
+  }, []);
+
+  const handleTagsChange = useCallback((nextTagsInput: string) => {
+    const nextUpdatedAt = new Date().toISOString();
+    setTagsInput(nextTagsInput);
+    setUpdatedAt(nextUpdatedAt);
+    setDirty(true);
+    setSaveStatus("idle");
+    setEditorError(null);
+    lifecycleRef.current?.onEdit();
+  }, []);
+
+  const handlePinnedChange = useCallback((nextPinned: boolean) => {
+    const nextUpdatedAt = new Date().toISOString();
+    setIsPinned(nextPinned);
+    setUpdatedAt(nextUpdatedAt);
+    setDirty(true);
+    setSaveStatus("idle");
+    setEditorError(null);
+    lifecycleRef.current?.onEdit();
+  }, []);
+
+  const handleArchivedChange = useCallback((nextArchived: boolean) => {
+    const nextUpdatedAt = new Date().toISOString();
+    setIsArchived(nextArchived);
+    setUpdatedAt(nextUpdatedAt);
+    setDirty(true);
+    setSaveStatus("idle");
+    setEditorError(null);
+    lifecycleRef.current?.onEdit();
+  }, []);
+
+  const searchWikiLinks = useCallback(
+    async (query: string): Promise<WikiLinkSuggestion[]> => {
+      const response = await listNotes(baseUrl, {
+        limit: 8,
+        offset: 0,
+        search: query.trim() || undefined,
+        is_archived: false,
+      });
+      return response.items.map((item) => ({
+        noteId: item.note_id,
+        title: item.note_title,
+      }));
+    },
+    [baseUrl],
+  );
+
+  const createWikiLinkNote = useCallback(
+    async (title: string): Promise<WikiLinkSuggestion> => {
+      const nextTitle = title.trim() || "Untitled";
+      const noteId = makeGeneratedNoteId();
+      await saveNote(baseUrl, {
+        note_id: noteId,
+        note_title: nextTitle,
+        subject_id: "inbox",
+        tags: [],
+        is_pinned: false,
+        is_archived: false,
+        content_json: createEmptyEditorDoc(),
+        content_text: " ",
+        updated_at: new Date().toISOString(),
+      });
+      return {
+        noteId,
+        title: nextTitle,
+      };
+    },
+    [baseUrl],
+  );
+
   return (
-    <section data-testid="note-editor">
+    <section className="note-editor" data-testid="note-editor">
       <EditorToolbar dirty={dirty} saveStatus={saveStatus} processStatus={processStatus} />
-      <label>
+      <label className="note-editor-field">
         <span className="sr-only">Note title</span>
         <input
+          className="note-editor-input note-editor-title"
           aria-label="Note title"
           type="text"
           value={noteTitle}
@@ -231,12 +450,62 @@ export function NoteEditor({
           disabled={isLoading}
         />
       </label>
+      <div className="note-editor-meta-grid">
+        <label className="note-editor-field">
+          <span className="sr-only">Subject</span>
+          <input
+            className="note-editor-input"
+            aria-label="Subject"
+            type="text"
+            value={subjectId}
+            onChange={(event) => handleSubjectChange(event.target.value)}
+            disabled={isLoading}
+          />
+        </label>
+        <label className="note-editor-field">
+          <span className="sr-only">Tags</span>
+          <input
+            className="note-editor-input"
+            aria-label="Tags"
+            type="text"
+            value={tagsInput}
+            onChange={(event) => handleTagsChange(event.target.value)}
+            disabled={isLoading}
+          />
+        </label>
+      </div>
+      <div className="note-editor-toggle-row">
+        <label className="note-editor-toggle">
+          <input
+            aria-label="Pinned"
+            type="checkbox"
+            checked={isPinned}
+            onChange={(event) => handlePinnedChange(event.target.checked)}
+            disabled={isLoading}
+          />
+          Pinned
+        </label>
+        <label className="note-editor-toggle">
+          <input
+            aria-label="Archived"
+            type="checkbox"
+            checked={isArchived}
+            onChange={(event) => handleArchivedChange(event.target.checked)}
+            disabled={isLoading}
+          />
+          Archived
+        </label>
+      </div>
       <TipTapEditor
         value={documentJson}
         onUpdate={handleEditorUpdate}
         onBlur={() => lifecycleRef.current?.onBlur()}
         disabled={isLoading}
+        onSearchWikiLinks={searchWikiLinks}
+        onCreateWikiLink={createWikiLinkNote}
+        onEditorError={(message) => setEditorError(message)}
       />
+      {editorError ? <p className="note-editor-inline-error">{editorError}</p> : null}
     </section>
   );
 }

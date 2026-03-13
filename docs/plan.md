@@ -25,14 +25,16 @@ Each story follows the working rule from `docs/codex.md`:
 - Background jobs: FastAPI BackgroundTasks first, Huey later
 - Product differentiation: passive, explainable semantic connections
 
-## Progress Snapshot (2026-03-11)
-- Overall status: `Epic E0 complete`; `Epic E1 complete`; `Epic E2 complete`; `Epic E3 complete`; `Epic E4 complete`; `Epic E5 complete`; `Epics E6-E9 not started`.
+## Progress Snapshot (2026-03-12)
+- Overall status: `Epic E0 complete`; `Epic E1 complete`; `Epic E2 complete`; `Epic E3 complete`; `Epic E4 complete`; `Epic E5 complete`; `Epic E6 complete`; `Epic E7 complete`; `legacy Epics E6-E9 deprecated`; `commercial-track Epics E8-E10 planned`.
 - Completed stories: `S0.1 Repository and service skeleton`, `S0.2 Quality bar and test harnesses`.
 - Completed stories: `S1.1 TipTap editor baseline`, `S1.2 Debounced autosave and processing triggers`.
 - Completed stories: `S2.1 Core relational schema for notes and blocks`, `S2.2 Graph and vector extension activation`.
 - Completed stories: `S3.1 spaCy + keyphrase + relation extraction pipeline`, `S3.2 NLP latency budget and performance regression control`.
 - Completed stories: `S4.1 Five-layer resolution funnel`, `S4.2 Alias table persistence and feedback loop`.
 - Completed stories: `S5.1 Typed node and relationship model`, `S5.2 Idempotent delete-and-replace synchronization`.
+- Completed stories: `S6.1 Note workspace shell and navigation`, `S6.2 Organization primitives`.
+- Completed stories: `S7.1 Common block and formatting feature set`, `S7.2 Slash commands and wiki-links`.
 - Validation evidence:
   - `make setup` completed with `uv` and created `api/.venv`.
   - `make check` passed (`ruff`, `mypy`).
@@ -65,6 +67,20 @@ Each story follows the working rule from `docs/codex.md`:
   - Added typed graph sync service with source-note delete-and-replace behavior (`source_note_id` provenance).
   - Added startup async backfill workflow and `/v1/backfill-status` status endpoint.
   - Added explicit `note_title` support across DB/API/contracts/web and included title in persisted hash identity.
+- E6 implementation pass completed (2026-03-12):
+  - Added workspace shell in `web` with note list sidebar, create/rename/delete actions, recent notes, empty state, and keyboard list navigation.
+  - Added note organization metadata (`subject_id`, `tags`, `is_pinned`, `is_archived`) across shared contracts, API persistence, and editor autosave payloads.
+  - Added list query semantics for search/subject/tag/archive/pinned filters and default archive exclusion in `/v1/notes`.
+  - Added migration `20260312_0004` for organization schema (`notes` flags + `note_tags` association table) with idempotent guards.
+  - Validation results: Python `93 passed, 5 skipped`; web tests `22 passed` (Node 20 compose runtime); web typecheck passed.
+- E7 implementation pass completed (2026-03-12):
+  - Added data-driven command registry for common editing transforms (paragraph/headings/lists/checklist/quote/code/divider).
+  - Added slash-command menu and `Cmd/Ctrl+K` command palette fallback with keyboard navigation support.
+  - Added `[[wiki-link]]` autocomplete with existing-note suggestions and unresolved-link quick-create flow.
+  - Validation results: web typecheck passed; compose web suite `45 passed`.
+- Roadmap rebaseline completed (2026-03-12):
+  - Legacy unfinished `E6-E9` are deprecated for planning purposes.
+  - New commercial-track roadmap is now defined as `E6 Workspace`, `E7 Editor Commands`, `E8 Math/Images/Export`, `E9 Guided Graph`, and `E10 Launch Hardening`.
 
 ## Architecture Decisions (Track In docs/plan.md)
 - 2026-03-07: TipTap is the canonical editor runtime path.
@@ -97,6 +113,39 @@ Each story follows the working rule from `docs/codex.md`:
 - 2026-03-12: Embedding table writes are schema-pinned to `public.note_embeddings`.
   - Rationale: AGE sets session `search_path` to `ag_catalog`; unqualified writes can drift schemas and break operational checks.
   - Impacted areas: `api/src/app/db/repositories/graph_repository.py`, `tests/integration/test_graph_vector_repository.py`.
+- 2026-03-12: Editor canonical model remains TipTap JSON with markdown export-only capability.
+  - Rationale: preserve rich editor fidelity while enabling portability; avoid dual-canonical content drift.
+  - Impacted areas: `web/src/components/editor/*`, `shared/contracts/*`, future export endpoint.
+- 2026-03-12: v1 authoring target is Notion-like basic blocks plus command surface, not full Notion parity.
+  - Rationale: prioritize high-frequency writing workflows and ship speed over exhaustive block feature parity.
+  - Impacted areas: `web/src/components/editor/*`, `web/src/lib/editor/*`.
+- 2026-03-12: Editor command behavior is driven by a central command registry consumed by toolbar, slash menu, and command palette.
+  - Rationale: keep command behavior consistent across interaction surfaces and simplify extension of future commands.
+  - Impacted areas: `web/src/lib/editor/commands.ts`, `web/src/components/editor/TipTapEditor.tsx`, `web/src/components/editor/TipTapEditor.test.tsx`.
+- 2026-03-12: Wiki links are represented as canonical inline `[[Title]]` text inside TipTap JSON and resolved via async note-title lookup.
+  - Rationale: preserve editor storage simplicity while enabling Obsidian-style linking and unresolved-link quick-create.
+  - Impacted areas: `web/src/lib/editor/wiki-links.ts`, `web/src/components/editor/TipTapEditor.tsx`, `web/src/components/editor/NoteEditor.tsx`.
+- 2026-03-12: Math support is LaTeX inline/block, and image support is upload API + local disk with storage adapter boundary.
+  - Rationale: robust v1 functionality now with a clear path to S3/object storage later.
+  - Impacted areas: future `api/src/app/routes/*`, `api/src/app/db/*`, editor media/math modules.
+- 2026-03-12: Graph UX target is local-first plus guided global graph behind explicit user action.
+  - Rationale: keep graph usable and performant while avoiding early global hairball complexity.
+  - Impacted areas: future graph API and `web` graph view modules.
+- 2026-03-12: Legacy unfinished `E6-E9` are superseded by commercial-track `E6-E10`.
+  - Rationale: align execution order with commercial usability priorities (workspace/editor/media first).
+  - Impacted areas: `docs/plan.md` epic sequencing and milestones.
+- 2026-03-12: Notes list defaults to non-archived records and supports explicit archive/search/subject/tag/pinned filters.
+  - Rationale: preserve focused day-to-day workspace while keeping archived content queryable on demand.
+  - Impacted areas: `api/src/app/routes/notes.py`, `api/src/app/db/repositories/note_repository.py`, `tests/integration/test_notes_api.py`.
+- 2026-03-12: Workspace note actions are context-menu driven and pinned notes render in a dedicated section.
+  - Rationale: reduce destructive-action clutter and prevent duplicate note rows while keeping pinned navigation explicit.
+  - Impacted areas: `web/src/components/workspace/NotesWorkspace.tsx`, `web/src/components/workspace/NotesWorkspace.test.tsx`, `web/src/app/globals.css`.
+- 2026-03-12: Workspace filters refresh via debounce and support explicit loading/retry feedback states.
+  - Rationale: improve responsiveness and operational clarity without requiring blur-based user actions.
+  - Impacted areas: `web/src/components/workspace/NotesWorkspace.tsx`, `web/src/components/workspace/NotesWorkspace.test.tsx`, `web/src/app/globals.css`.
+- 2026-03-12: Note tags are normalized to trimmed lowercase and persisted via a dedicated `note_tags` association table.
+  - Rationale: avoid duplicate semantic tags and keep filtering deterministic across UI and API.
+  - Impacted areas: `api/src/app/db/models/note_tag.py`, `api/alembic/versions/20260312_0004_workspace_organization.py`, `api/src/app/db/repositories/note_repository.py`.
 
 ## Epic E0: Project Foundations and Delivery Guardrails [Completed 2026-03-01]
 Context: The scoping doc assumes a multi-service system. Without shared conventions, implementation speed will collapse under integration drift. This epic creates the base structure, contract boundaries, and CI quality gates so all later epics are reliable.
@@ -333,7 +382,236 @@ Subtask ST5.2.3.a: Execute delete-and-replace in one transaction.
 Subtask ST5.2.3.b: Emit sync audit log entries.
 Subtask ST5.2.3.c: Add retry-safe idempotency keys.
 
-## Epic E6: Graph Visualization (Sigma.js + Graphology)
+## Epic E6: Workspace Organization and Multi-Note UX [Completed 2026-03-12]
+Context: Commercial usability requires multi-note workflow quality before deeper graph/AI surface expansion.
+
+### Story S6.1: Note workspace shell and navigation [Completed]
+Context: Users need fast create/open/search workflows and stable note switching.
+
+#### Task T6.1.1: Build workspace structure
+Subtask ST6.1.1.a: Add persistent note list/sidebar shell.
+Subtask ST6.1.1.b: Add create, rename, delete, and open-note actions.
+Subtask ST6.1.1.c: Add recent-note and empty-state UX.
+
+#### Task T6.1.2: Write workspace behavior tests
+Subtask ST6.1.2.a: Test note CRUD from UI.
+Subtask ST6.1.2.b: Test note selection persistence and list refresh.
+Subtask ST6.1.2.c: Test keyboard-first navigation baseline.
+
+#### Task T6.1.3: Implement workspace logic
+Subtask ST6.1.3.a: Extend note list API client behavior.
+Subtask ST6.1.3.b: Add optimistic updates and retry handling.
+Subtask ST6.1.3.c: Preserve existing autosave/process interaction guarantees.
+
+### Story S6.2: Organization primitives [Completed]
+Context: Users need practical organization controls: notebook/subject, tags, pin, and archive.
+
+#### Task T6.2.1: Build organization data structure
+Subtask ST6.2.1.a: Add subject assignment support in API and UI.
+Subtask ST6.2.1.b: Add tag assignment and filtering support.
+Subtask ST6.2.1.c: Add pin/archive metadata and query support.
+
+#### Task T6.2.2: Write organization tests
+Subtask ST6.2.2.a: Test filter/sort/pagination behavior.
+Subtask ST6.2.2.b: Test persistence of subject/tag/pin/archive fields.
+Subtask ST6.2.2.c: Test list endpoint query semantics for search and filters.
+
+#### Task T6.2.3: Implement API and persistence updates
+Subtask ST6.2.3.a: Extend notes listing contract/query params.
+Subtask ST6.2.3.b: Add required schema and repository updates.
+Subtask ST6.2.3.c: Add integration coverage for organization flows.
+
+## Epic E7: Notion-Like Core Editing and Command Surface [Completed 2026-03-12]
+Context: TipTap baseline exists; v1 needs common block ergonomics and command-driven editing.
+
+### Story S7.1: Common block and formatting feature set [Completed]
+Context: Focus on high-frequency writing blocks, not full Notion parity.
+
+#### Task T7.1.1: Build block feature structure
+Subtask ST7.1.1.a: Add H1/H2/H3, list, checklist, quote, code block, divider, paragraph/body behavior.
+Subtask ST7.1.1.b: Add toolbar hooks and shortcuts for common block transforms.
+Subtask ST7.1.1.c: Keep TipTap JSON as canonical persisted format.
+
+#### Task T7.1.2: Write block behavior tests
+Subtask ST7.1.2.a: Test block transforms and serialization stability.
+Subtask ST7.1.2.b: Test shortcut behavior and command consistency.
+Subtask ST7.1.2.c: Test autosave/process compatibility across new blocks.
+
+#### Task T7.1.3: Implement block logic
+Subtask ST7.1.3.a: Wire editor extensions and command handlers.
+Subtask ST7.1.3.b: Keep plain-text projection reliable for pipeline input.
+Subtask ST7.1.3.c: Preserve existing error/retry UX behavior.
+
+### Story S7.2: Slash commands and wiki-links [Completed]
+Context: Users need fast insertion commands and Obsidian-style link ergonomics.
+
+#### Task T7.2.1: Build command and wiki-link structure
+Subtask ST7.2.1.a: Add slash command menu for core actions.
+Subtask ST7.2.1.b: Add command palette fallback entrypoint.
+Subtask ST7.2.1.c: Add `[[wiki-link]]` autocomplete and unresolved-link quick-create flow.
+
+#### Task T7.2.2: Write command/wiki-link tests
+Subtask ST7.2.2.a: Test slash command insert/transform behavior.
+Subtask ST7.2.2.b: Test wiki-link completion and selection.
+Subtask ST7.2.2.c: Test unresolved-link note creation behavior.
+
+#### Task T7.2.3: Implement command/wiki-link logic
+Subtask ST7.2.3.a: Add editor command registry wiring.
+Subtask ST7.2.3.b: Add note title lookup path for link completion.
+Subtask ST7.2.3.c: Keep link representation in canonical JSON model.
+
+## Epic E8: Math, Images, and Export
+Context: Commercial note quality requires robust equations/media plus portable export.
+
+### Story S8.1: Math authoring and rendering
+Context: v1 math model is LaTeX inline + block.
+
+#### Task T8.1.1: Build math feature structure
+Subtask ST8.1.1.a: Add inline and block math nodes.
+Subtask ST8.1.1.b: Add deterministic math rendering path.
+Subtask ST8.1.1.c: Add toolbar/command entrypoints for math insertion.
+
+#### Task T8.1.2: Write math tests
+Subtask ST8.1.2.a: Test save/load round-trip for math nodes.
+Subtask ST8.1.2.b: Test invalid expression handling UX.
+Subtask ST8.1.2.c: Test plain-text fallback behavior for NLP pipeline compatibility.
+
+#### Task T8.1.3: Implement math logic
+Subtask ST8.1.3.a: Wire editor math extensions and rendering.
+Subtask ST8.1.3.b: Preserve autosave/process compatibility.
+Subtask ST8.1.3.c: Add deterministic export representation for math blocks.
+
+### Story S8.2: Image upload and markdown export
+Context: v1 image strategy is upload API + local disk; export strategy is markdown + bundled assets.
+
+#### Task T8.2.1: Build image/export structure
+Subtask ST8.2.1.a: Add upload and retrieval API endpoints.
+Subtask ST8.2.1.b: Add persisted image metadata and storage adapter boundary.
+Subtask ST8.2.1.c: Add markdown export endpoint (`.md` + `assets/` relative links).
+
+#### Task T8.2.2: Write image/export tests
+Subtask ST8.2.2.a: Test file validation and path safety behavior.
+Subtask ST8.2.2.b: Test editor image lifecycle (insert/render/delete).
+Subtask ST8.2.2.c: Test export output structure and link correctness.
+
+#### Task T8.2.3: Implement image/export logic
+Subtask ST8.2.3.a: Add local disk storage implementation.
+Subtask ST8.2.3.b: Add orphan cleanup behavior.
+Subtask ST8.2.3.c: Add export packaging and integration tests.
+
+## Epic E9: Guided Graph Experience (Local First + Global On Demand)
+Context: Graph differentiation remains important, but with strict scope and performance boundaries.
+
+### Story S9.1: Local graph in note context
+Context: Local graph must be default, fast, and explainable.
+
+#### Task T9.1.1: Build local graph structure
+Subtask ST9.1.1.a: Add local graph panel route/shell.
+Subtask ST9.1.1.b: Add local neighborhood API endpoint.
+Subtask ST9.1.1.c: Add confidence/type/depth filters.
+
+#### Task T9.1.2: Write local graph tests
+Subtask ST9.1.2.a: Test empty/non-empty rendering.
+Subtask ST9.1.2.b: Test node selection behavior.
+Subtask ST9.1.2.c: Test deterministic filter updates.
+
+#### Task T9.1.3: Implement local graph logic
+Subtask ST9.1.3.a: Add frontend graph adapter wiring.
+Subtask ST9.1.3.b: Add local payload limits.
+Subtask ST9.1.3.c: Add loading/error UX states.
+
+### Story S9.2: Guided global graph
+Context: Global graph should be explicit-action only with strict query bounds.
+
+#### Task T9.2.1: Build guided global graph structure
+Subtask ST9.2.1.a: Add explicit global graph action.
+Subtask ST9.2.1.b: Add server-side limits/guards.
+Subtask ST9.2.1.c: Add snapshot/layout caching.
+
+#### Task T9.2.2: Write guided global tests
+Subtask ST9.2.2.a: Test global graph is not loaded by default.
+Subtask ST9.2.2.b: Test filters and limits are enforced.
+Subtask ST9.2.2.c: Test cache hit/miss and invalidation behavior.
+
+#### Task T9.2.3: Implement guided global logic
+Subtask ST9.2.3.a: Add global graph API query path.
+Subtask ST9.2.3.b: Add cache invalidation on note reprocessing.
+Subtask ST9.2.3.c: Add safe uncached fallback behavior.
+
+## Epic E10: Commercial Boundaries and Launch Hardening (Single-User Runtime)
+Context: Collaboration is deferred, but launch needs clean SaaS-ready boundaries and operational hardening.
+
+### Story S10.1: SaaS-ready boundaries without collaboration features
+Context: Keep current single-user behavior while preventing future refactor traps.
+
+#### Task T10.1.1: Build boundary structure
+Subtask ST10.1.1.a: Add actor/workspace context abstraction hooks.
+Subtask ST10.1.1.b: Add entitlement/billing hook boundaries.
+Subtask ST10.1.1.c: Keep default runtime behavior unchanged.
+
+#### Task T10.1.2: Write boundary tests
+Subtask ST10.1.2.a: Test backward compatibility when hooks are disabled.
+Subtask ST10.1.2.b: Test context injection safety for existing endpoints.
+Subtask ST10.1.2.c: Test no regressions in current single-user flows.
+
+#### Task T10.1.3: Implement hardening and telemetry
+Subtask ST10.1.3.a: Add launch-critical telemetry events.
+Subtask ST10.1.3.b: Add reliability checks for core workflows.
+Subtask ST10.1.3.c: Update operational documentation.
+
+## Cross-Epic Test Case Matrix (Minimum Viable Scenarios)
+Context: These are mandatory scenarios that validate the full architecture promised in the scoping doc.
+
+1. Workspace and organization
+- User can create/open/rename/delete notes from the workspace shell.
+- Search/filter/sort/pagination are deterministic with notebook/tag/pin/archive metadata.
+
+2. Note editing and autosave
+- User edits rapidly for 30 seconds; only debounced saves are persisted.
+- Last stable content is preserved after refresh and note-switch navigation.
+
+3. Command surface and linking
+- Slash commands insert/transform supported block types correctly.
+- `[[wiki-link]]` completion resolves existing notes and can create unresolved targets.
+
+4. Math and images
+- Inline/block LaTeX persists and renders consistently.
+- Image upload/insert/render/delete behavior is stable with validation and safe paths.
+
+5. Export portability
+- Markdown export emits `.md` plus `assets/` relative links for embedded images.
+- Export includes deterministic math representation.
+
+6. Processing trigger and status
+- Note save triggers async processing and returns immediately.
+- Job status transitions are visible and terminal state is reachable.
+
+7. Graph synchronization and exploration
+- Reprocessing the same note is idempotent and stale artifacts are removed.
+- Local graph loads by default; guided global graph only loads on explicit user action.
+
+8. Reliability and launch hardening
+- Service restart does not corrupt note/graph state.
+- Launch-critical telemetry and diagnostics are emitted for core capture/process/discover flows.
+
+## Milestone Sequence
+M1: Complete (`E0 complete`, `E1 complete`).
+M2: E2 data layer and E3 baseline NLP complete.
+M3: Complete (`E4 resolution complete`, `E5 graph sync complete`).
+M4: Complete (`E6 workspace complete`, `E7 editor command surface complete`).
+M5: E8 math/images/export complete.
+M6: E9 guided graph experience complete.
+M7: E10 commercial boundaries and launch hardening complete.
+
+## Definition of Done for Any Story
+1. Structure artifacts created first.
+2. Test cases written and reviewed before logic implementation.
+3. Logic implemented with minimal, clear, slop-free comments and docs.
+4. Test suite executed and passing for the written scenarios.
+5. Acceptance criteria and operational notes documented.
+
+
+## Epic E6 (Legacy, Deprecated 2026-03-12): Graph Visualization (Sigma.js + Graphology)
 Context: The graph must remain explorable at scale. The scoping doc emphasizes local graph first and global graph on demand.
 
 ### Story S6.1: Local graph visualization experience
@@ -372,7 +650,7 @@ Subtask ST6.2.3.a: Add backend layout precompute worker path.
 Subtask ST6.2.3.b: Send pre-positioned nodes for render-only client mode.
 Subtask ST6.2.3.c: Add fallback for uncached graph requests.
 
-## Epic E7: Background Processing and Queue Evolution
+## Epic E7 (Legacy, Deprecated 2026-03-12): Background Processing and Queue Evolution
 Context: The scoping doc recommends starting very simple with FastAPI BackgroundTasks, then evolving to Huey only when reliability needs increase.
 
 ### Story S7.1: Phase 1 async processing with FastAPI BackgroundTasks
@@ -411,7 +689,7 @@ Subtask ST7.2.3.a: Implement Huey-backed task enqueue and consume logic.
 Subtask ST7.2.3.b: Add feature flag for queue backend selection.
 Subtask ST7.2.3.c: Add operational docs for queue cutover.
 
-## Epic E8: Product UX Differentiation and Trust
+## Epic E8 (Legacy, Deprecated 2026-03-12): Product UX Differentiation and Trust
 Context: Competitive analysis shows differentiation comes from passive semantic discovery with transparent confidence and explainability.
 
 ### Story S8.1: Backlinks and semantic suggestion surfaces
@@ -450,7 +728,7 @@ Subtask ST8.2.3.a: Apply routing/state defaults for local graph.
 Subtask ST8.2.3.b: Implement global graph load action and progress state.
 Subtask ST8.2.3.c: Persist user graph filter preferences.
 
-## Epic E9: Deployment, Operations, and Observability
+## Epic E9 (Legacy, Deprecated 2026-03-12): Deployment, Operations, and Observability
 Context: The architecture includes multiple runtime components. Operational visibility and repeatable deployment are needed early.
 
 ### Story S9.1: Local/dev deployment profile
@@ -487,49 +765,4 @@ Subtask ST9.2.2.c: Test error traces include actionable context.
 #### Task T9.2.3: Implement telemetry instrumentation
 Subtask ST9.2.3.a: Add structured logging middleware.
 Subtask ST9.2.3.b: Add stage-level timers for NLP pipeline.
-Subtask ST9.2.3.c: Add alerts for repeated processing failures.
-
-## Cross-Epic Test Case Matrix (Minimum Viable Scenarios)
-Context: These are mandatory scenarios that validate the full architecture promised in the scoping doc.
-
-1. Note editing and autosave
-- User edits a note rapidly for 30 seconds; only debounced saves are persisted.
-- Last stable content is preserved after refresh.
-
-2. Processing trigger and status
-- Note save triggers async processing and returns immediately.
-- Job status transitions are visible and terminal state is reachable.
-
-3. NLP extraction quality baseline
-- Common entities, keyphrases, and simple SVO relations are extracted from representative notes.
-- Low-confidence outputs are flagged and can be filtered.
-
-4. Entity resolution
-- Abbreviations and orthographic variants resolve to canonical entities where alias evidence exists.
-- Ambiguous matches remain unresolved when below confidence thresholds.
-
-5. Graph synchronization
-- Reprocessing same note is idempotent.
-- Deleting concept text from note removes corresponding graph artifacts.
-
-6. Graph visualization
-- Local graph loads by default and remains interactive.
-- Global graph requires explicit request and uses cached layouts when available.
-
-7. Reliability and operations
-- Service restart does not corrupt persisted note/graph state.
-- Errors are logged with traceable IDs and surface meaningful diagnostics.
-
-## Milestone Sequence
-M1: Complete (`E0 complete`, `E1 complete`).
-M2: E2 data layer and E3 baseline NLP complete.
-M3: Complete (`E4 resolution complete`, `E5 graph sync complete`).
-M4: E6 visualization + E7 async pipeline complete.
-M5: E8 UX differentiation + E9 operational readiness complete.
-
-## Definition of Done for Any Story
-1. Structure artifacts created first.
-2. Test cases written and reviewed before logic implementation.
-3. Logic implemented with minimal, clear, slop-free comments and docs.
-4. Test suite executed and passing for the written scenarios.
-5. Acceptance criteria and operational notes documented.
+Subtask ST9.2.3.c: Add alerts for repeated processing failures
