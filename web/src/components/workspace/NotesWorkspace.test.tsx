@@ -427,4 +427,163 @@ describe("NotesWorkspace", () => {
     });
     expect(within(allSection).getByRole("button", { name: /Delete Candidate/ })).toBeInTheDocument();
   });
+
+  it("opens quick switch with Ctrl+K and closes with Escape", async () => {
+    vi.mocked(listNotes).mockResolvedValue({
+      items: [noteSummary("note-a", { note_title: "Alpha Note" })],
+      total: 1,
+    });
+
+    render(<NotesWorkspace baseUrl="http://localhost:8000" />);
+    await screen.findByTestId("notes-section-all");
+
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    expect(await screen.findByRole("dialog", { name: "Quick switcher" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Quick switch")).toHaveFocus();
+
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Quick switcher" })).not.toBeInTheDocument();
+    });
+  });
+
+  it("opens a note from quick switch keyboard selection", async () => {
+    vi.mocked(listNotes).mockResolvedValue({
+      items: [
+        noteSummary("note-a", { note_title: "Alpha Note" }),
+        noteSummary("note-b", { note_title: "Beta Note" }),
+      ],
+      total: 2,
+    });
+
+    render(<NotesWorkspace baseUrl="http://localhost:8000" />);
+    await screen.findByTestId("notes-section-all");
+
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    const input = await screen.findByLabelText("Quick switch");
+    fireEvent.change(input, { target: { value: "beta" } });
+    fireEvent.keyDown(input, { key: "ArrowDown" });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("active-note-id")).toHaveTextContent("note-b");
+    });
+  });
+
+  it("creates a new note from quick switch action", async () => {
+    vi.mocked(listNotes)
+      .mockResolvedValueOnce({
+        items: [noteSummary("note-a")],
+        total: 1,
+      })
+      .mockResolvedValueOnce({
+        items: [noteSummary("note-a"), noteSummary("note-new")],
+        total: 2,
+      });
+    vi.mocked(saveNote).mockResolvedValue({
+      note_id: "note-new",
+      saved_at: "2026-03-12T20:01:00Z",
+      version: 1,
+    });
+
+    render(<NotesWorkspace baseUrl="http://localhost:8000" />);
+    await screen.findByTestId("notes-section-all");
+
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    const input = await screen.findByLabelText("Quick switch");
+    fireEvent.change(input, { target: { value: "create" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(saveNote).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      expect(screen.getByTestId("active-note-id")).toHaveTextContent("note-new");
+    });
+  });
+
+  it("toggles pin from quick switch action", async () => {
+    vi.mocked(listNotes)
+      .mockResolvedValueOnce({
+        items: [noteSummary("note-a", { note_title: "Pin Candidate", is_pinned: false })],
+        total: 1,
+      })
+      .mockResolvedValueOnce({
+        items: [noteSummary("note-a", { note_title: "Pin Candidate", is_pinned: true })],
+        total: 1,
+      });
+    vi.mocked(getNote).mockResolvedValue({
+      note_id: "note-a",
+      note_title: "Pin Candidate",
+      subject_id: "inbox",
+      tags: [],
+      is_pinned: false,
+      is_archived: false,
+      content_json: { type: "doc", content: [] },
+      content_text: "Text note-a",
+      updated_at: "2026-03-12T20:00:00Z",
+      version: 1,
+    });
+    vi.mocked(saveNote).mockResolvedValue({
+      note_id: "note-a",
+      saved_at: "2026-03-12T20:01:00Z",
+      version: 2,
+    });
+
+    render(<NotesWorkspace baseUrl="http://localhost:8000" />);
+    await screen.findByTestId("notes-section-all");
+
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    const input = await screen.findByLabelText("Quick switch");
+    fireEvent.change(input, { target: { value: "pin selected" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(saveNote).toHaveBeenCalled();
+    });
+    expect(vi.mocked(saveNote).mock.calls.at(-1)?.[1]).toMatchObject({
+      note_id: "note-a",
+      is_pinned: true,
+    });
+  });
+
+  it("toggles archive from quick switch action", async () => {
+    vi.mocked(listNotes).mockResolvedValue({
+      items: [noteSummary("note-a", { note_title: "Archive Candidate", is_archived: false })],
+      total: 1,
+    });
+    vi.mocked(getNote).mockResolvedValue({
+      note_id: "note-a",
+      note_title: "Archive Candidate",
+      subject_id: "inbox",
+      tags: [],
+      is_pinned: false,
+      is_archived: false,
+      content_json: { type: "doc", content: [] },
+      content_text: "Text note-a",
+      updated_at: "2026-03-12T20:00:00Z",
+      version: 1,
+    });
+    vi.mocked(saveNote).mockResolvedValue({
+      note_id: "note-a",
+      saved_at: "2026-03-12T20:01:00Z",
+      version: 2,
+    });
+
+    render(<NotesWorkspace baseUrl="http://localhost:8000" />);
+    await screen.findByTestId("notes-section-all");
+
+    fireEvent.keyDown(window, { key: "k", ctrlKey: true });
+    const input = await screen.findByLabelText("Quick switch");
+    fireEvent.change(input, { target: { value: "archive selected" } });
+    fireEvent.keyDown(input, { key: "Enter" });
+
+    await waitFor(() => {
+      expect(saveNote).toHaveBeenCalled();
+    });
+    expect(vi.mocked(saveNote).mock.calls.at(-1)?.[1]).toMatchObject({
+      note_id: "note-a",
+      is_archived: true,
+    });
+  });
 });

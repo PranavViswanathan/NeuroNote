@@ -6,6 +6,11 @@ import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent
 import { NoteEditor } from "../editor/NoteEditor";
 import { deleteNote, getNote, listNotes, saveNote } from "../../lib/api-client";
 import type { WorkspaceFilters } from "../../lib/workspace/types";
+import {
+  buildQuickSwitchItems,
+  filterQuickSwitchItems,
+  type QuickSwitchItem,
+} from "../../lib/workspace/quick-switch";
 import type { NoteSummary } from "../../../../shared/contracts/ts/v1/note";
 
 const SELECTED_NOTE_STORAGE_KEY = "neuronote.workspace.selected";
@@ -56,6 +61,19 @@ function pickFallbackSelection(items: NoteSummary[]): string | null {
 
 function makeNewNoteId(): string {
   return `note-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+}
+
+function clampIndex(index: number, size: number): number {
+  if (size <= 0) {
+    return 0;
+  }
+  if (index < 0) {
+    return size - 1;
+  }
+  if (index >= size) {
+    return 0;
+  }
+  return index;
 }
 
 function loadRecentNotes(): string[] {
@@ -116,8 +134,12 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<NoteContextMenuState | null>(null);
+  const [quickSwitchOpen, setQuickSwitchOpen] = useState(false);
+  const [quickSwitchQuery, setQuickSwitchQuery] = useState("");
+  const [quickSwitchSelectedIndex, setQuickSwitchSelectedIndex] = useState(0);
   const createInFlightRef = useRef(false);
   const contextMenuRef = useRef<HTMLUListElement | null>(null);
+  const quickSwitchInputRef = useRef<HTMLInputElement | null>(null);
   const filtersInitializedRef = useRef(false);
 
   const filters: WorkspaceFilters = useMemo(
@@ -132,6 +154,12 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
+  }, []);
+
+  const closeQuickSwitch = useCallback(() => {
+    setQuickSwitchOpen(false);
+    setQuickSwitchQuery("");
+    setQuickSwitchSelectedIndex(0);
   }, []);
 
   const openContextMenu = useCallback(
@@ -267,6 +295,51 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
     () => (contextMenu ? notes.find((item) => item.note_id === contextMenu.noteId) ?? null : null),
     [contextMenu, notes],
   );
+  const quickSwitchItems = useMemo(
+    () => buildQuickSwitchItems({ notes, selectedNoteId }),
+    [notes, selectedNoteId],
+  );
+  const filteredQuickSwitchItems = useMemo(
+    () => filterQuickSwitchItems({ items: quickSwitchItems, query: quickSwitchQuery }),
+    [quickSwitchItems, quickSwitchQuery],
+  );
+
+  useEffect(() => {
+    if (!quickSwitchOpen) {
+      return;
+    }
+    quickSwitchInputRef.current?.focus();
+  }, [quickSwitchOpen]);
+
+  useEffect(() => {
+    setQuickSwitchSelectedIndex((current) => clampIndex(current, filteredQuickSwitchItems.length));
+  }, [filteredQuickSwitchItems.length]);
+
+  useEffect(() => {
+    const handleKeyDown = (event: KeyboardEvent) => {
+      const isQuickSwitchShortcut = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k";
+      if (isQuickSwitchShortcut) {
+        event.preventDefault();
+        closeContextMenu();
+        setQuickSwitchOpen(true);
+        setQuickSwitchQuery("");
+        setQuickSwitchSelectedIndex(0);
+        return;
+      }
+      if (!quickSwitchOpen) {
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeQuickSwitch();
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [closeContextMenu, closeQuickSwitch, quickSwitchOpen]);
 
   const handleMetadataSaved = useCallback(
     async (payload: WorkspaceMetadataSavedPayload) => {
@@ -455,6 +528,128 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
       }
     },
     [baseUrl, closeContextMenu, notes, refreshNotes],
+  );
+
+  const handleToggleArchivedNote = useCallback(
+    async (noteId: string) => {
+      const target = notes.find((item) => item.note_id === noteId);
+      if (!target) {
+        closeContextMenu();
+        return;
+      }
+      const nextArchivedState = !target.is_archived;
+      const previousNotes = notes;
+      const previousSelected = selectedNoteId;
+
+      const optimisticNotes = sortWorkspaceNotes(
+        notes
+          .map((item) =>
+            item.note_id === noteId
+              ? {
+                  ...item,
+                  is_archived: nextArchivedState,
+                  updated_at: new Date().toISOString(),
+                }
+              : item,
+          )
+          .filter((item) => showArchived || !item.is_archived),
+      );
+      setNotes(optimisticNotes);
+
+      if (nextArchivedState && !showArchived && selectedNoteId === noteId) {
+        const fallback = pickFallbackSelection(optimisticNotes);
+        setSelectedNoteId(fallback);
+        setHighlightedNoteId(fallback);
+      }
+      closeContextMenu();
+
+      try {
+        const existing = await getNote(baseUrl, noteId);
+        await saveNote(baseUrl, {
+          note_id: existing.note_id,
+          note_title: existing.note_title,
+          subject_id: existing.subject_id,
+          tags: existing.tags,
+          is_pinned: existing.is_pinned,
+          is_archived: nextArchivedState,
+          content_json: existing.content_json,
+          content_text: existing.content_text,
+          updated_at: new Date().toISOString(),
+        });
+        await refreshNotes(nextArchivedState && !showArchived ? null : noteId);
+      } catch {
+        setNotes(previousNotes);
+        setSelectedNoteId(previousSelected);
+        setHighlightedNoteId(previousSelected ?? pickFallbackSelection(previousNotes));
+        setErrorMessage("Failed to update archive status");
+      }
+    },
+    [baseUrl, closeContextMenu, notes, refreshNotes, selectedNoteId, showArchived],
+  );
+
+  const executeQuickSwitchItem = useCallback(
+    async (item: QuickSwitchItem) => {
+      closeQuickSwitch();
+      if (item.actionId === "open_note") {
+        if (!item.noteId) {
+          return;
+        }
+        setSelectedNoteId(item.noteId);
+        setHighlightedNoteId(item.noteId);
+        return;
+      }
+      if (item.actionId === "create_note") {
+        await handleCreateNote();
+        return;
+      }
+
+      const targetNoteId = item.noteId ?? selectedNoteId;
+      if (!targetNoteId) {
+        return;
+      }
+      if (item.actionId === "toggle_pin_selected") {
+        await handleTogglePinnedNote(targetNoteId);
+        return;
+      }
+      if (item.actionId === "toggle_archive_selected") {
+        await handleToggleArchivedNote(targetNoteId);
+      }
+    },
+    [
+      closeQuickSwitch,
+      handleCreateNote,
+      handleToggleArchivedNote,
+      handleTogglePinnedNote,
+      selectedNoteId,
+    ],
+  );
+
+  const handleQuickSwitchKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLInputElement>) => {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setQuickSwitchSelectedIndex((current) => clampIndex(current + 1, filteredQuickSwitchItems.length));
+        return;
+      }
+      if (event.key === "ArrowUp") {
+        event.preventDefault();
+        setQuickSwitchSelectedIndex((current) => clampIndex(current - 1, filteredQuickSwitchItems.length));
+        return;
+      }
+      if (event.key === "Enter") {
+        event.preventDefault();
+        const target = filteredQuickSwitchItems[quickSwitchSelectedIndex] ?? filteredQuickSwitchItems[0];
+        if (target) {
+          void executeQuickSwitchItem(target);
+        }
+        return;
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        closeQuickSwitch();
+      }
+    },
+    [closeQuickSwitch, executeQuickSwitchItem, filteredQuickSwitchItems, quickSwitchSelectedIndex],
   );
 
   const handleListKeyDown = useCallback(
@@ -693,6 +888,72 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
         )}
       </main>
 
+      {quickSwitchOpen ? (
+        <div
+          className="quick-switch-overlay"
+          role="presentation"
+          onMouseDown={(event) => {
+            if (event.target === event.currentTarget) {
+              closeQuickSwitch();
+            }
+          }}
+        >
+          <div
+            className="quick-switch-dialog"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Quick switcher"
+            onMouseDown={(event) => {
+              event.stopPropagation();
+            }}
+          >
+            <label className="sr-only" htmlFor="quick-switch-input">
+              Quick switch
+            </label>
+            <input
+              id="quick-switch-input"
+              ref={quickSwitchInputRef}
+              className="quick-switch-input"
+              aria-label="Quick switch"
+              type="text"
+              value={quickSwitchQuery}
+              onChange={(event) => {
+                setQuickSwitchQuery(event.target.value);
+                setQuickSwitchSelectedIndex(0);
+              }}
+              onKeyDown={handleQuickSwitchKeyDown}
+              placeholder="Search notes and actions"
+            />
+
+            <ul className="quick-switch-results" role="listbox" aria-label="Quick switch results">
+              {filteredQuickSwitchItems.map((item, index) => (
+                <li key={item.id}>
+                  <button
+                    type="button"
+                    role="option"
+                    aria-selected={index === quickSwitchSelectedIndex}
+                    className={`quick-switch-item${index === quickSwitchSelectedIndex ? " selected" : ""}`}
+                    onMouseEnter={() => {
+                      setQuickSwitchSelectedIndex(index);
+                    }}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      void executeQuickSwitchItem(item);
+                    }}
+                  >
+                    <span className="quick-switch-item-title">{item.title}</span>
+                    {item.subtitle ? <span className="quick-switch-item-subtitle">{item.subtitle}</span> : null}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            {filteredQuickSwitchItems.length === 0 ? (
+              <p className="quick-switch-empty">No matches found.</p>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
+
       {contextMenu ? (
         <ul
           ref={contextMenuRef}
@@ -709,6 +970,11 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
           <li>
             <button type="button" role="menuitem" onClick={() => void handleTogglePinnedNote(contextMenu.noteId)}>
               {contextNote?.is_pinned ? "Unpin note" : "Pin note"}
+            </button>
+          </li>
+          <li>
+            <button type="button" role="menuitem" onClick={() => void handleToggleArchivedNote(contextMenu.noteId)}>
+              {contextNote?.is_archived ? "Unarchive note" : "Archive note"}
             </button>
           </li>
           <li>

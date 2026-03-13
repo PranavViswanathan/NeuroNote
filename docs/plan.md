@@ -26,7 +26,7 @@ Each story follows the working rule from `docs/codex.md`:
 - Product differentiation: passive, explainable semantic connections
 
 ## Progress Snapshot (2026-03-13)
-- Overall status: `Epic E0 complete`; `Epic E1 complete`; `Epic E2 complete`; `Epic E3 complete`; `Epic E4 complete`; `Epic E5 complete`; `Epic E6 complete`; `Epic E7 complete`; `Epic E8 complete`; `Epic E9 in progress`; `legacy Epics E6-E9 deprecated`; `commercial-track Epics E10-E12 planned`.
+- Overall status: `Epic E0 complete`; `Epic E1 complete`; `Epic E2 complete`; `Epic E3 complete`; `Epic E4 complete`; `Epic E5 complete`; `Epic E6 complete`; `Epic E7 complete`; `Epic E8 complete`; `Epic E9 in progress`; `Epic E10 in progress`; `legacy Epics E6-E9 deprecated`; `commercial-track Epics E11-E12 planned`.
 - Completed stories: `S0.1 Repository and service skeleton`, `S0.2 Quality bar and test harnesses`.
 - Completed stories: `S1.1 TipTap editor baseline`, `S1.2 Debounced autosave and processing triggers`.
 - Completed stories: `S2.1 Core relational schema for notes and blocks`, `S2.2 Graph and vector extension activation`.
@@ -93,6 +93,11 @@ Each story follows the working rule from `docs/codex.md`:
   - Added optimistic workspace interactions with rollback guarantees for rename/pin/delete failure paths.
   - Added regression coverage for optimistic pin and delete rollback behavior in workspace tests.
   - Validation results: `npm --prefix web run typecheck` passed; compose web tests `59 passed`; compose API suite `111 passed, 5 skipped`.
+- E10 quick-switch foundation pass completed (2026-03-13):
+  - Added workspace-global quick switcher (`Cmd/Ctrl+K`) with keyboard-first navigation (`Arrow`, `Enter`, `Escape`) and accessible dialog/listbox semantics.
+  - Added searchable action + note result model for open/create/pin/archive flows with deterministic filtering.
+  - Added workspace wiring for quick actions and archive toggle parity in context menu.
+  - Validation results: compose web typecheck passed; targeted quick-switch tests passed (`22 passed`); full compose web suite `67 passed`.
 - Roadmap rebaseline completed (2026-03-12):
   - Legacy unfinished `E6-E9` are deprecated for planning purposes.
   - New commercial-track roadmap is now defined as `E6 Workspace`, `E7 Editor Commands`, `E8 Math/Images/Export`, `E9 UX Hardening`, `E10 Hybrid Workflows`, `E11 Guided Graph`, and `E12 Launch Hardening`.
@@ -180,6 +185,9 @@ Each story follows the working rule from `docs/codex.md`:
 - 2026-03-13: `note_assets` schema checks are PostgreSQL schema-qualified and reconciliation tolerates undefined-table errors.
   - Rationale: avoid false-positive schema checks and prevent note-save failures in partially migrated runtime environments.
   - Impacted areas: `api/src/app/services/note_asset_service.py`, `tests/unit/test_note_asset_service.py`.
+- 2026-03-13: Workspace quick-switch uses a unified result model (actions + notes) with keyboard-first execution semantics.
+  - Rationale: keep discovery and command execution deterministic from one interaction surface (`Cmd/Ctrl+K`) and reduce command drift.
+  - Impacted areas: `web/src/lib/workspace/quick-switch.ts`, `web/src/components/workspace/NotesWorkspace.tsx`, `web/src/components/workspace/NotesWorkspace.test.tsx`.
 
 ## Epic E0: Project Foundations and Delivery Guardrails [Completed 2026-03-01]
 Context: The scoping doc assumes a multi-service system. Without shared conventions, implementation speed will collapse under integration drift. This epic creates the base structure, contract boundaries, and CI quality gates so all later epics are reliable.

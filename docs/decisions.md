@@ -140,3 +140,11 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
   - local host web runtime still unstable due `esbuild` platform mismatch;
   - canonical validation used compose runtime (`docker compose -f infra/docker-compose.yml run --rm web npm run test`);
   - API regression suite revalidated in compose (`111 passed, 5 skipped`).
+
+## 2026-03-13 (Epic E10 Quick-Switch Foundation)
+- Added a workspace-global quick switcher (`Cmd/Ctrl+K`) with a single searchable result model for actions and notes.
+- Added keyboard-first interaction contract (`Arrow` navigation, `Enter` execution, `Escape` close) with dialog/listbox semantics.
+- Added quick actions for create/open/pin/archive and aligned context menu parity by adding archive/unarchive action.
+- Validation/runtime notes:
+  - web host runtime still depends on local platform-correct `node_modules`; compose remains the canonical verification path;
+  - compose validation passed: targeted quick-switch tests (`22 passed`) and full web suite (`67 passed`).
