@@ -3,7 +3,8 @@ from __future__ import annotations
 from functools import lru_cache
 import uuid
 
-from sqlalchemy import inspect
+from sqlalchemy import inspect, text
+from sqlalchemy.exc import ProgrammingError, SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.db.repositories.note_asset_repository import NoteAssetRepository, NoteAssetRecord
@@ -32,7 +33,16 @@ def reset_media_storage() -> None:
 
 def note_assets_table_exists(session: Session) -> bool:
     bind = session.get_bind()
-    return bool(inspect(bind).has_table("note_assets"))
+    try:
+        if bind.dialect.name == "postgresql":
+            # Use an explicit schema-qualified probe to avoid search_path ambiguity.
+            regclass = session.execute(
+                text("SELECT to_regclass('public.note_assets')"),
+            ).scalar_one_or_none()
+            return bool(regclass)
+        return bool(inspect(bind).has_table("note_assets"))
+    except SQLAlchemyError:
+        return False
 
 
 def allowed_image_mime_types() -> set[str]:
@@ -52,6 +62,15 @@ def create_asset_identity(note_id: str, mime_type: str) -> tuple[str, str, str]:
     return asset_id, extension, relative_path
 
 
+def _is_missing_note_assets_error(exc: ProgrammingError) -> bool:
+    error_text = str(getattr(exc, "orig", exc)).lower()
+    return "note_assets" in error_text and (
+        "does not exist" in error_text
+        or "undefinedtable" in error_text
+        or "no such table" in error_text
+    )
+
+
 def reconcile_note_assets_for_note(
     *,
     note_id: str,
@@ -63,7 +82,12 @@ def reconcile_note_assets_for_note(
 
     repository = NoteAssetRepository(session)
     referenced_asset_ids = extract_asset_ids_from_doc(content_json)
-    active_assets = repository.list_active_assets_for_note(note_id)
+    try:
+        active_assets = repository.list_active_assets_for_note(note_id)
+    except ProgrammingError as exc:
+        if _is_missing_note_assets_error(exc):
+            return []
+        raise
 
     active_ids = {asset.asset_id for asset in active_assets}
     to_delete_ids = active_ids - referenced_asset_ids

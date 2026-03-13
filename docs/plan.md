@@ -26,7 +26,7 @@ Each story follows the working rule from `docs/codex.md`:
 - Product differentiation: passive, explainable semantic connections
 
 ## Progress Snapshot (2026-03-13)
-- Overall status: `Epic E0 complete`; `Epic E1 complete`; `Epic E2 complete`; `Epic E3 complete`; `Epic E4 complete`; `Epic E5 complete`; `Epic E6 complete`; `Epic E7 complete`; `Epic E8 complete`; `legacy Epics E6-E9 deprecated`; `commercial-track Epics E9-E10 planned`.
+- Overall status: `Epic E0 complete`; `Epic E1 complete`; `Epic E2 complete`; `Epic E3 complete`; `Epic E4 complete`; `Epic E5 complete`; `Epic E6 complete`; `Epic E7 complete`; `Epic E8 complete`; `Epic E9 in progress`; `legacy Epics E6-E9 deprecated`; `commercial-track Epics E10-E12 planned`.
 - Completed stories: `S0.1 Repository and service skeleton`, `S0.2 Quality bar and test harnesses`.
 - Completed stories: `S1.1 TipTap editor baseline`, `S1.2 Debounced autosave and processing triggers`.
 - Completed stories: `S2.1 Core relational schema for notes and blocks`, `S2.2 Graph and vector extension activation`.
@@ -84,9 +84,14 @@ Each story follows the working rule from `docs/codex.md`:
   - Added markdown export endpoint returning zip payload (`note.md` + `assets/*`) with deterministic image/math markdown representation.
   - Added editor support for math/image command surface and math/image plain-text fallback extraction.
   - Validation results: Python `106 passed, 5 skipped`; web typecheck passed; compose web suite `53 passed`.
+- E9 kickoff reliability pass completed (2026-03-13):
+  - Added PostgreSQL schema-qualified `note_assets` existence probe and undefined-table reconciliation fallback.
+  - Added regression tests covering Postgres table probe behavior and runtime missing-table no-op path.
+  - Validation results: compose API checks passed (`ruff`, `mypy`) and Python suite `111 passed, 5 skipped`.
 - Roadmap rebaseline completed (2026-03-12):
   - Legacy unfinished `E6-E9` are deprecated for planning purposes.
-  - New commercial-track roadmap is now defined as `E6 Workspace`, `E7 Editor Commands`, `E8 Math/Images/Export`, `E9 Guided Graph`, and `E10 Launch Hardening`.
+  - New commercial-track roadmap is now defined as `E6 Workspace`, `E7 Editor Commands`, `E8 Math/Images/Export`, `E9 UX Hardening`, `E10 Hybrid Workflows`, `E11 Guided Graph`, and `E12 Launch Hardening`.
+  - 2026-03-13 renumbering: prior planned `E9` moved to `E11` and prior planned `E10` moved to `E12` to prioritize UX debt burn-down.
 
 ## Architecture Decisions (Track In docs/plan.md)
 - 2026-03-07: TipTap is the canonical editor runtime path.
@@ -137,7 +142,7 @@ Each story follows the working rule from `docs/codex.md`:
 - 2026-03-12: Graph UX target is local-first plus guided global graph behind explicit user action.
   - Rationale: keep graph usable and performant while avoiding early global hairball complexity.
   - Impacted areas: future graph API and `web` graph view modules.
-- 2026-03-12: Legacy unfinished `E6-E9` are superseded by commercial-track `E6-E10`.
+- 2026-03-12: Legacy unfinished `E6-E9` are superseded by commercial-track `E6-E12`.
   - Rationale: align execution order with commercial usability priorities (workspace/editor/media first).
   - Impacted areas: `docs/plan.md` epic sequencing and milestones.
 - 2026-03-12: Notes list defaults to non-archived records and supports explicit archive/search/subject/tag/pinned filters.
@@ -164,6 +169,12 @@ Each story follows the working rule from `docs/codex.md`:
 - 2026-03-13: Media reconciliation is backward-compatible with pre-E8 schemas.
   - Rationale: prevent note-save failures when runtime DB has not yet applied `note_assets` migration.
   - Impacted areas: `api/src/app/services/note_asset_service.py`, `api/src/app/routes/media.py`, `api/src/app/routes/export.py`.
+- 2026-03-13: Commercial-track roadmap sequencing is renumbered to prioritize UX debt burn-down before graph expansion.
+  - Rationale: stabilize core workspace/editor behavior before expanding feature surface area.
+  - Impacted areas: `docs/plan.md` (`E9-E12` sequencing and milestones).
+- 2026-03-13: `note_assets` schema checks are PostgreSQL schema-qualified and reconciliation tolerates undefined-table errors.
+  - Rationale: avoid false-positive schema checks and prevent note-save failures in partially migrated runtime environments.
+  - Impacted areas: `api/src/app/services/note_asset_service.py`, `tests/unit/test_note_asset_service.py`.
 
 ## Epic E0: Project Foundations and Delivery Guardrails [Completed 2026-03-01]
 Context: The scoping doc assumes a multi-service system. Without shared conventions, implementation speed will collapse under integration drift. This epic creates the base structure, contract boundaries, and CI quality gates so all later epics are reliable.
@@ -517,65 +528,143 @@ Subtask ST8.2.3.a: Add local disk storage implementation.
 Subtask ST8.2.3.b: Add orphan cleanup behavior.
 Subtask ST8.2.3.c: Add export packaging and integration tests.
 
-## Epic E9: Guided Graph Experience (Local First + Global On Demand)
+## Epic E9: UX Debt Burn-Down and Interaction Reliability
+Context: Current UX regressions and interaction inconsistency are the largest blocker to commercial trust. This epic prioritizes stability and clarity before adding more surface area.
+
+### Story S9.1: Workspace information architecture consistency
+Context: Notes list behavior must be deterministic and free of duplicate/pinned drift.
+
+#### Task T9.1.1: Build workspace reliability structure
+Subtask ST9.1.1.a: Consolidate note list rendering to one source of truth for pinned/recent/all sections.
+Subtask ST9.1.1.b: Define deterministic sorting and section fallback rules.
+Subtask ST9.1.1.c: Add explicit loading/empty/error UI states for list and note panel.
+
+#### Task T9.1.2: Write workspace UX regression tests
+Subtask ST9.1.2.a: Test no duplicate note rows across pinned and unpinned sections.
+Subtask ST9.1.2.b: Test rename/pin/archive/delete reflect immediately without refresh.
+Subtask ST9.1.2.c: Test keyboard parity for context-menu actions and list navigation.
+
+#### Task T9.1.3: Implement workspace UX hardening
+Subtask ST9.1.3.a: Add optimistic UI updates with rollback on failures.
+Subtask ST9.1.3.b: Add retry affordances for failed list/save operations.
+Subtask ST9.1.3.c: Add deterministic selection and highlight behavior after list refresh.
+
+### Story S9.2: Editor ergonomics and command reliability
+Context: Editor readability and command reliability must be predictable in all core writing flows.
+
+#### Task T9.2.1: Build editor UX structure
+Subtask ST9.2.1.a: Standardize typography/spacing tokens for content readability.
+Subtask ST9.2.1.b: Harden slash-command surface with deterministic insertion behavior.
+Subtask ST9.2.1.c: Add non-blocking inline error and status states for editor actions.
+
+#### Task T9.2.2: Write editor UX regression tests
+Subtask ST9.2.2.a: Test slash command selection inserts block type instead of fallback newline.
+Subtask ST9.2.2.b: Test content visibility and multiline editing behavior on load/switch.
+Subtask ST9.2.2.c: Test keyboard-only command navigation (`Arrow`, `Enter`, `Escape`).
+
+#### Task T9.2.3: Implement editor UX hardening
+Subtask ST9.2.3.a: Apply visual-system tokens and remove ad-hoc editor spacing.
+Subtask ST9.2.3.b: Add robust command execution guardrails and user feedback.
+Subtask ST9.2.3.c: Ensure status indicators never get stuck in invalid states.
+
+## Epic E10: Hybrid Knowledge Workflows
+Context: After UX debt burn-down, expand Notion-like productivity and Obsidian-like discovery in a single cohesive workflow.
+
+### Story S10.1: Quick switcher and unified command surface
+Context: Fast note discovery and action execution should be available from anywhere.
+
+#### Task T10.1.1: Build quick-switch structure
+Subtask ST10.1.1.a: Add global quick-switcher trigger (`Cmd/Ctrl+K`) at workspace level.
+Subtask ST10.1.1.b: Add searchable actions for open/create/filter/pin/archive.
+Subtask ST10.1.1.c: Add keyboard-first navigation and selection behavior.
+
+#### Task T10.1.2: Write quick-switch tests
+Subtask ST10.1.2.a: Test note search/open/create flows from quick-switcher.
+Subtask ST10.1.2.b: Test action execution parity for keyboard and mouse.
+Subtask ST10.1.2.c: Test deterministic fallback behavior when no results are found.
+
+#### Task T10.1.3: Implement unified command logic
+Subtask ST10.1.3.a: Reuse shared command registry across editor and workspace.
+Subtask ST10.1.3.b: Add contextual action grouping and ranking.
+Subtask ST10.1.3.c: Add telemetry hooks for command adoption and failures.
+
+### Story S10.2: Backlinks and linked mentions
+Context: Linking intelligence should make relationships explainable and actionable.
+
+#### Task T10.2.1: Build backlink structure
+Subtask ST10.2.1.a: Add note-scoped backlink query contract and API route.
+Subtask ST10.2.1.b: Add linked-mentions panel in note context.
+Subtask ST10.2.1.c: Add unresolved-link suggestion state and quick-create action.
+
+#### Task T10.2.2: Write backlink tests
+Subtask ST10.2.2.a: Test backlink accuracy and deterministic ordering.
+Subtask ST10.2.2.b: Test jump-to-source behavior for each backlink item.
+Subtask ST10.2.2.c: Test degraded behavior when backlink query fails.
+
+#### Task T10.2.3: Implement backlink logic
+Subtask ST10.2.3.a: Add backend backlink materialization query path.
+Subtask ST10.2.3.b: Add UI rendering with loading/error/empty states.
+Subtask ST10.2.3.c: Add inline explanation labels for why links exist.
+
+## Epic E11: Guided Graph Experience (Local First + Global On Demand)
 Context: Graph differentiation remains important, but with strict scope and performance boundaries.
 
-### Story S9.1: Local graph in note context
+### Story S11.1: Local graph in note context
 Context: Local graph must be default, fast, and explainable.
 
-#### Task T9.1.1: Build local graph structure
-Subtask ST9.1.1.a: Add local graph panel route/shell.
-Subtask ST9.1.1.b: Add local neighborhood API endpoint.
-Subtask ST9.1.1.c: Add confidence/type/depth filters.
+#### Task T11.1.1: Build local graph structure
+Subtask ST11.1.1.a: Add local graph panel route/shell.
+Subtask ST11.1.1.b: Add local neighborhood API endpoint.
+Subtask ST11.1.1.c: Add confidence/type/depth filters.
 
-#### Task T9.1.2: Write local graph tests
-Subtask ST9.1.2.a: Test empty/non-empty rendering.
-Subtask ST9.1.2.b: Test node selection behavior.
-Subtask ST9.1.2.c: Test deterministic filter updates.
+#### Task T11.1.2: Write local graph tests
+Subtask ST11.1.2.a: Test empty/non-empty rendering.
+Subtask ST11.1.2.b: Test node selection behavior.
+Subtask ST11.1.2.c: Test deterministic filter updates.
 
-#### Task T9.1.3: Implement local graph logic
-Subtask ST9.1.3.a: Add frontend graph adapter wiring.
-Subtask ST9.1.3.b: Add local payload limits.
-Subtask ST9.1.3.c: Add loading/error UX states.
+#### Task T11.1.3: Implement local graph logic
+Subtask ST11.1.3.a: Add frontend graph adapter wiring.
+Subtask ST11.1.3.b: Add local payload limits.
+Subtask ST11.1.3.c: Add loading/error UX states.
 
-### Story S9.2: Guided global graph
+### Story S11.2: Guided global graph
 Context: Global graph should be explicit-action only with strict query bounds.
 
-#### Task T9.2.1: Build guided global graph structure
-Subtask ST9.2.1.a: Add explicit global graph action.
-Subtask ST9.2.1.b: Add server-side limits/guards.
-Subtask ST9.2.1.c: Add snapshot/layout caching.
+#### Task T11.2.1: Build guided global graph structure
+Subtask ST11.2.1.a: Add explicit global graph action.
+Subtask ST11.2.1.b: Add server-side limits/guards.
+Subtask ST11.2.1.c: Add snapshot/layout caching.
 
-#### Task T9.2.2: Write guided global tests
-Subtask ST9.2.2.a: Test global graph is not loaded by default.
-Subtask ST9.2.2.b: Test filters and limits are enforced.
-Subtask ST9.2.2.c: Test cache hit/miss and invalidation behavior.
+#### Task T11.2.2: Write guided global tests
+Subtask ST11.2.2.a: Test global graph is not loaded by default.
+Subtask ST11.2.2.b: Test filters and limits are enforced.
+Subtask ST11.2.2.c: Test cache hit/miss and invalidation behavior.
 
-#### Task T9.2.3: Implement guided global logic
-Subtask ST9.2.3.a: Add global graph API query path.
-Subtask ST9.2.3.b: Add cache invalidation on note reprocessing.
-Subtask ST9.2.3.c: Add safe uncached fallback behavior.
+#### Task T11.2.3: Implement guided global logic
+Subtask ST11.2.3.a: Add global graph API query path.
+Subtask ST11.2.3.b: Add cache invalidation on note reprocessing.
+Subtask ST11.2.3.c: Add safe uncached fallback behavior.
 
-## Epic E10: Commercial Boundaries and Launch Hardening (Single-User Runtime)
+## Epic E12: Commercial Boundaries and Launch Hardening (Single-User Runtime)
 Context: Collaboration is deferred, but launch needs clean SaaS-ready boundaries and operational hardening.
 
-### Story S10.1: SaaS-ready boundaries without collaboration features
+### Story S12.1: SaaS-ready boundaries without collaboration features
 Context: Keep current single-user behavior while preventing future refactor traps.
 
-#### Task T10.1.1: Build boundary structure
-Subtask ST10.1.1.a: Add actor/workspace context abstraction hooks.
-Subtask ST10.1.1.b: Add entitlement/billing hook boundaries.
-Subtask ST10.1.1.c: Keep default runtime behavior unchanged.
+#### Task T12.1.1: Build boundary structure
+Subtask ST12.1.1.a: Add actor/workspace context abstraction hooks.
+Subtask ST12.1.1.b: Add entitlement/billing hook boundaries.
+Subtask ST12.1.1.c: Keep default runtime behavior unchanged.
 
-#### Task T10.1.2: Write boundary tests
-Subtask ST10.1.2.a: Test backward compatibility when hooks are disabled.
-Subtask ST10.1.2.b: Test context injection safety for existing endpoints.
-Subtask ST10.1.2.c: Test no regressions in current single-user flows.
+#### Task T12.1.2: Write boundary tests
+Subtask ST12.1.2.a: Test backward compatibility when hooks are disabled.
+Subtask ST12.1.2.b: Test context injection safety for existing endpoints.
+Subtask ST12.1.2.c: Test no regressions in current single-user flows.
 
-#### Task T10.1.3: Implement hardening and telemetry
-Subtask ST10.1.3.a: Add launch-critical telemetry events.
-Subtask ST10.1.3.b: Add reliability checks for core workflows.
-Subtask ST10.1.3.c: Update operational documentation.
+#### Task T12.1.3: Implement hardening and telemetry
+Subtask ST12.1.3.a: Add launch-critical telemetry events.
+Subtask ST12.1.3.b: Add reliability checks for core workflows.
+Subtask ST12.1.3.c: Update operational documentation.
 
 ## Cross-Epic Test Case Matrix (Minimum Viable Scenarios)
 Context: These are mandatory scenarios that validate the full architecture promised in the scoping doc.
@@ -592,23 +681,27 @@ Context: These are mandatory scenarios that validate the full architecture promi
 - Slash commands insert/transform supported block types correctly.
 - `[[wiki-link]]` completion resolves existing notes and can create unresolved targets.
 
-4. Math and images
+4. Workspace quick-switch and backlink workflows
+- `Cmd/Ctrl+K` quick-switch can open/create/filter notes without mouse-only actions.
+- Backlinks panel lists linked mentions with deterministic ordering and jump behavior.
+
+5. Math and images
 - Inline/block LaTeX persists and renders consistently.
 - Image upload/insert/render/delete behavior is stable with validation and safe paths.
 
-5. Export portability
+6. Export portability
 - Markdown export emits `.md` plus `assets/` relative links for embedded images.
 - Export includes deterministic math representation.
 
-6. Processing trigger and status
+7. Processing trigger and status
 - Note save triggers async processing and returns immediately.
 - Job status transitions are visible and terminal state is reachable.
 
-7. Graph synchronization and exploration
+8. Graph synchronization and exploration
 - Reprocessing the same note is idempotent and stale artifacts are removed.
 - Local graph loads by default; guided global graph only loads on explicit user action.
 
-8. Reliability and launch hardening
+9. Reliability and launch hardening
 - Service restart does not corrupt note/graph state.
 - Launch-critical telemetry and diagnostics are emitted for core capture/process/discover flows.
 
@@ -618,8 +711,10 @@ M2: E2 data layer and E3 baseline NLP complete.
 M3: Complete (`E4 resolution complete`, `E5 graph sync complete`).
 M4: Complete (`E6 workspace complete`, `E7 editor command surface complete`).
 M5: E8 math/images/export complete.
-M6: E9 guided graph experience complete.
-M7: E10 commercial boundaries and launch hardening complete.
+M6: E9 UX debt burn-down and interaction reliability complete.
+M7: E10 hybrid knowledge workflows complete.
+M8: E11 guided graph experience complete.
+M9: E12 commercial boundaries and launch hardening complete.
 
 ## Definition of Done for Any Story
 1. Structure artifacts created first.

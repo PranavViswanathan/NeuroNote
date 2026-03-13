@@ -54,7 +54,7 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
 ## 2026-03-12 (Commercial Roadmap Rebaseline Notes)
 - Planning rebaseline:
   - Legacy unfinished epics (`E6-E9`) are marked deprecated in `docs/plan.md`.
-  - New authoritative commercial-track roadmap is `E6-E10` (`Workspace`, `Editor Commands`, `Math/Images/Export`, `Guided Graph`, `Launch Hardening`).
+  - New authoritative commercial-track roadmap is `E6-E12` (`Workspace`, `Editor Commands`, `Math/Images/Export`, `UX Hardening`, `Hybrid Workflows`, `Guided Graph`, `Launch Hardening`).
 - Product scope alignment notes:
   - Canonical editor persistence remains TipTap JSON; markdown remains export capability, not canonical storage.
   - v1 editor target is Notion-like core blocks and command UX, not full Notion parity.
@@ -122,3 +122,12 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
 - Math input normalization now strips optional `$...$` / `$$...$$` delimiters before persistence and rendering.
 - Inline authoring now supports direct typing of `$...$` which auto-converts to a `mathInline` node.
 - This closes the UX gap where wrapped expressions stayed visible as raw delimiter text in the editor.
+
+## 2026-03-13 (Roadmap Renumber + E9 Reliability Kickoff)
+- Roadmap sequencing update:
+  - Prior planned `E9 Guided Graph` is now `E11`.
+  - Prior planned `E10 Launch Hardening` is now `E12`.
+  - New `E9` and `E10` focus on UX debt burn-down and hybrid workflows.
+- Runtime compatibility hardening:
+  - `note_assets` existence checks now use PostgreSQL `to_regclass('public.note_assets')` probing when on Postgres.
+  - Note asset reconciliation now no-ops when backend hits an undefined-table error for `note_assets`, preventing note-save failures on partially migrated environments.
