@@ -5,7 +5,7 @@ from datetime import UTC, datetime
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
-from app.db.repositories.note_repository import NoteRepository
+from app.db.repositories.note_repository import NoteRepository, NoteTitleConflictError
 from app.db.session import get_db_session
 from app.services.note_asset_service import reconcile_note_assets_for_note
 from shared.contracts.python.v1.note import (
@@ -36,23 +36,33 @@ def put_note(
         )
 
     repository = NoteRepository(session)
-    with session.begin():
-        record = repository.upsert_note(
-            note_id=payload.note_id,
-            note_title=payload.note_title,
-            subject_id=payload.subject_id,
-            tags=payload.tags,
-            is_pinned=payload.is_pinned,
-            is_archived=payload.is_archived,
-            content_json=payload.content_json,
-            content_text=payload.content_text,
-            updated_at=payload.updated_at,
-        )
-        reconcile_note_assets_for_note(
-            note_id=payload.note_id,
-            content_json=payload.content_json,
-            session=session,
-        )
+    try:
+        with session.begin():
+            record = repository.upsert_note(
+                note_id=payload.note_id,
+                note_title=payload.note_title,
+                subject_id=payload.subject_id,
+                tags=payload.tags,
+                is_pinned=payload.is_pinned,
+                is_archived=payload.is_archived,
+                content_json=payload.content_json,
+                content_text=payload.content_text,
+                updated_at=payload.updated_at,
+            )
+            reconcile_note_assets_for_note(
+                note_id=payload.note_id,
+                content_json=payload.content_json,
+                session=session,
+            )
+    except NoteTitleConflictError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT,
+            detail={
+                "code": "note_title_conflict",
+                "message": str(exc),
+                "title": exc.normalized_title,
+            },
+        ) from exc
     return SaveNoteResponse(
         note_id=record.note_id,
         saved_at=_utc_now_iso(),

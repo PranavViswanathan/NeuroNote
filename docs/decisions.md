@@ -148,3 +148,24 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
 - Validation/runtime notes:
   - web host runtime still depends on local platform-correct `node_modules`; compose remains the canonical verification path;
   - compose validation passed: targeted quick-switch tests (`22 passed`) and full web suite (`67 passed`).
+
+## 2026-03-13 (Epic E10 Backlinks + Title Guardrail Delivery)
+- Added backlinks API route and shared contracts:
+  - `GET /v1/notes/{note_id}/backlinks`
+  - `shared/contracts/python/v1/backlink.py`
+  - `shared/contracts/ts/v1/backlink.ts`
+- Implemented deterministic backlinks from explicit wiki-link references (`[[Title]]`) with ordering:
+  - `updated_at` descending
+  - `source_note_id` ascending
+- Added title uniqueness write guardrail in note persistence:
+  - duplicate title saves now return `409` with `note_title_conflict` payload.
+- Added workspace linked-mentions modal:
+  - loading/error/empty/data states
+  - retry action
+  - keyboard close (`Escape`)
+  - focus restore to trigger
+  - source-note jump behavior
+- Validation/runtime notes:
+  - compose API checks and full API tests passed (`116 passed, 5 skipped`);
+  - compose web typecheck and full web tests passed (`71 passed`);
+  - local host `uv run` panic and host `esbuild` mismatch remain known environment constraints; compose remains canonical verification path.

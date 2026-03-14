@@ -4,7 +4,7 @@ NeuroNote is a monorepo with a web frontend, a Python API service, shared contra
 
 ## Services
 - `web/`: Next.js frontend with workspace sidebar (create/open/right-click actions), pinned/all note sections, organization controls, editor autosave orchestration, and API clients.
-- `api/`: FastAPI service for health, note persistence/listing, organization-aware note queries, note-processing endpoints, media asset upload/retrieval/deletion, and markdown export.
+- `api/`: FastAPI service for health, note persistence/listing, organization-aware note queries, note-processing endpoints, backlink retrieval, media asset upload/retrieval/deletion, and markdown export.
 - `shared/`: versioned request/response contracts shared across services.
 - `infra/`: local infrastructure orchestration.
 - `tests/`: repository-level structure and integration tests.
@@ -149,6 +149,44 @@ Useful query params:
    - `Shift+F10` on a focused note row opens the same context menu.
    - On API load failure, use `Retry` to re-fetch list content.
 
+## Validate Backlinks + Title Conflict Guardrail (Epic E10)
+1. Create target and source notes with explicit wiki-link references:
+```bash
+curl -sS -X PUT http://127.0.0.1:8000/v1/notes/backlink-target \
+  -H 'Content-Type: application/json' \
+  --data-binary @- <<'JSON'
+{"note_id":"backlink-target","note_title":"Backlink Target","subject_id":"inbox","tags":[],"is_pinned":false,"is_archived":false,"content_json":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Target note"}]}]},"content_text":"Target note","updated_at":"2026-03-13T13:00:00Z"}
+JSON
+
+curl -sS -X PUT http://127.0.0.1:8000/v1/notes/backlink-source-1 \
+  -H 'Content-Type: application/json' \
+  --data-binary @- <<'JSON'
+{"note_id":"backlink-source-1","note_title":"Source One","subject_id":"inbox","tags":[],"is_pinned":false,"is_archived":false,"content_json":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Reference [[Backlink Target]] from source"}]}]},"content_text":"Reference [[Backlink Target]] from source","updated_at":"2026-03-13T13:01:00Z"}
+JSON
+```
+2. Query backlinks for the target:
+```bash
+curl -sS http://127.0.0.1:8000/v1/notes/backlink-target/backlinks
+```
+Expected:
+- response includes `backlink-source-1` in `items`.
+3. Validate duplicate-title conflict response:
+```bash
+curl -sS -X PUT http://127.0.0.1:8000/v1/notes/conflict-a \
+  -H 'Content-Type: application/json' \
+  --data-binary @- <<'JSON'
+{"note_id":"conflict-a","note_title":"Duplicate Guard","subject_id":"inbox","tags":[],"is_pinned":false,"is_archived":false,"content_json":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"A"}]}]},"content_text":"A","updated_at":"2026-03-13T13:10:00Z"}
+JSON
+
+curl -sS -X PUT http://127.0.0.1:8000/v1/notes/conflict-b \
+  -H 'Content-Type: application/json' \
+  --data-binary @- <<'JSON'
+{"note_id":"conflict-b","note_title":"Duplicate Guard","subject_id":"inbox","tags":[],"is_pinned":false,"is_archived":false,"content_json":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"B"}]}]},"content_text":"B","updated_at":"2026-03-13T13:11:00Z"}
+JSON
+```
+Expected:
+- second request returns `409` with `detail.code = "note_title_conflict"`.
+
 ## Validate Editor Command Surface (Epic E7)
 1. Open any note editor in `http://localhost:3000`.
 2. Use command buttons above the editor and confirm block transforms apply:
@@ -161,6 +199,9 @@ Useful query params:
    - Wiki-link suggestions appear.
 6. Type `[[Some New Linked Note` and press `Enter`:
    - Quick-create option creates that note and inserts `[[Some New Linked Note]]` inline.
+7. Click `Linked mentions` in the editor panel:
+   - modal opens with loading/error/empty/data states.
+   - pressing `Escape` closes the modal and restores focus to the trigger.
 
 ## Validate Math, Image, and Export Flow (Epic E8)
 1. Save/update a note:

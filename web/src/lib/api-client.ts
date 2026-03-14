@@ -14,10 +14,29 @@ import type {
   UploadImageRequest,
   UploadImageResponse,
 } from "../../../shared/contracts/ts/v1/media";
+import type { BacklinksResponse } from "../../../shared/contracts/ts/v1/backlink";
+
+export class ApiClientError extends Error {
+  status: number;
+  detail: unknown;
+
+  constructor(status: number, detail: unknown = null) {
+    super(`Request failed with status ${status}`);
+    this.name = "ApiClientError";
+    this.status = status;
+    this.detail = detail;
+  }
+}
 
 async function parseJsonResponse<T>(response: Response): Promise<T> {
   if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`);
+    let detail: unknown = null;
+    try {
+      detail = await response.json();
+    } catch {
+      detail = null;
+    }
+    throw new ApiClientError(response.status, detail);
   }
   return (await response.json()) as T;
 }
@@ -84,7 +103,7 @@ export async function listNotes(
 export async function deleteNote(baseUrl: string, noteId: string): Promise<void> {
   const response = await fetch(`${baseUrl}/v1/notes/${noteId}`, { method: "DELETE" });
   if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`);
+    throw new ApiClientError(response.status);
   }
 }
 
@@ -143,7 +162,15 @@ export async function deleteNoteImage(baseUrl: string, assetId: string): Promise
 export async function exportNoteMarkdown(baseUrl: string, noteId: string): Promise<Blob> {
   const response = await fetch(`${baseUrl}/v1/notes/${noteId}/export/markdown`);
   if (!response.ok) {
-    throw new Error(`Request failed with status ${response.status}`);
+    throw new ApiClientError(response.status);
   }
   return response.blob();
+}
+
+export async function fetchNoteBacklinks(
+  baseUrl: string,
+  noteId: string,
+): Promise<BacklinksResponse> {
+  const response = await fetch(`${baseUrl}/v1/notes/${noteId}/backlinks`);
+  return parseJsonResponse<BacklinksResponse>(response);
 }

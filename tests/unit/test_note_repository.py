@@ -7,7 +7,7 @@ from sqlalchemy.dialects import postgresql
 from sqlalchemy.orm import Session
 
 from app.db.models.note import Note
-from app.db.repositories.note_repository import NoteRepository
+from app.db.repositories.note_repository import NoteRepository, NoteTitleConflictError
 
 
 def test_upsert_note_increments_version(db_session: Session) -> None:
@@ -283,3 +283,122 @@ def test_list_query_avoids_distinct_on_json_rows_for_postgres(db_session: Sessio
     ).upper()
     assert "DISTINCT" not in compiled
     assert "EXISTS" in compiled
+
+
+def test_upsert_note_rejects_duplicate_title_for_different_note(db_session: Session) -> None:
+    repository = NoteRepository(db_session)
+
+    with db_session.begin():
+        repository.upsert_note(
+            note_id="title-1",
+            note_title="Canonical Title",
+            subject_id="inbox",
+            tags=[],
+            is_pinned=False,
+            is_archived=False,
+            content_json={"type": "doc", "content": []},
+            content_text="First",
+            updated_at="2026-03-13T10:00:00Z",
+        )
+
+    with pytest.raises(NoteTitleConflictError):
+        with db_session.begin():
+            repository.upsert_note(
+                note_id="title-2",
+                note_title="Canonical Title",
+                subject_id="inbox",
+                tags=[],
+                is_pinned=False,
+                is_archived=False,
+                content_json={"type": "doc", "content": []},
+                content_text="Second",
+                updated_at="2026-03-13T10:01:00Z",
+            )
+
+
+def test_upsert_note_allows_same_note_to_keep_existing_title(db_session: Session) -> None:
+    repository = NoteRepository(db_session)
+
+    with db_session.begin():
+        repository.upsert_note(
+            note_id="title-3",
+            note_title="Stable Title",
+            subject_id="inbox",
+            tags=[],
+            is_pinned=False,
+            is_archived=False,
+            content_json={"type": "doc", "content": []},
+            content_text="First",
+            updated_at="2026-03-13T10:02:00Z",
+        )
+
+    with db_session.begin():
+        result = repository.upsert_note(
+            note_id="title-3",
+            note_title="Stable Title",
+            subject_id="inbox",
+            tags=[],
+            is_pinned=False,
+            is_archived=False,
+            content_json={"type": "doc", "content": []},
+            content_text="Second",
+            updated_at="2026-03-13T10:03:00Z",
+        )
+
+    assert result.version == 2
+    assert result.note_title == "Stable Title"
+
+
+def test_list_backlinks_for_note_matches_wikilinks_with_deterministic_order(db_session: Session) -> None:
+    repository = NoteRepository(db_session)
+
+    with db_session.begin():
+        repository.upsert_note(
+            note_id="note-target",
+            note_title="Graph Reasoning",
+            subject_id="inbox",
+            tags=[],
+            is_pinned=False,
+            is_archived=False,
+            content_json={"type": "doc", "content": []},
+            content_text="Target body",
+            updated_at="2026-03-13T11:00:00Z",
+        )
+        repository.upsert_note(
+            note_id="note-source-b",
+            note_title="Source B",
+            subject_id="inbox",
+            tags=[],
+            is_pinned=False,
+            is_archived=False,
+            content_json={"type": "doc", "content": []},
+            content_text="See [[Graph Reasoning]] and revisit [[graph reasoning]].",
+            updated_at="2026-03-13T11:02:00Z",
+        )
+        repository.upsert_note(
+            note_id="note-source-a",
+            note_title="Source A",
+            subject_id="inbox",
+            tags=[],
+            is_pinned=False,
+            is_archived=False,
+            content_json={"type": "doc", "content": []},
+            content_text="Links here: [[Graph   Reasoning]].",
+            updated_at="2026-03-13T11:03:00Z",
+        )
+        repository.upsert_note(
+            note_id="note-target",
+            note_title="Graph Reasoning",
+            subject_id="inbox",
+            tags=[],
+            is_pinned=False,
+            is_archived=False,
+            content_json={"type": "doc", "content": []},
+            content_text="Self link [[Graph Reasoning]] should be excluded.",
+            updated_at="2026-03-13T11:04:00Z",
+        )
+
+    backlinks = repository.list_backlinks_for_note("note-target")
+    assert [item.source_note_id for item in backlinks] == ["note-source-a", "note-source-b"]
+    assert all(item.matched_title == "Graph Reasoning" for item in backlinks)
+    assert all(item.snippet for item in backlinks)

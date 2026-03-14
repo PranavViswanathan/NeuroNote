@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
+import re
 
 from sqlalchemy import delete, func, or_, select
 from sqlalchemy.orm import Session, selectinload
@@ -14,6 +15,7 @@ from app.db.repositories.block_repository import BlockRepository
 
 DEFAULT_SUBJECT_ID = "inbox"
 DEFAULT_SUBJECT_NAME = "Inbox"
+WIKI_LINK_PATTERN = re.compile(r"\[\[([^\[\]]+)\]\]")
 
 
 @dataclass(slots=True)
@@ -42,6 +44,21 @@ class NoteSummaryRecord:
     content_text: str
     updated_at: str
     version: int
+
+
+@dataclass(slots=True)
+class BacklinkRecord:
+    source_note_id: str
+    source_note_title: str
+    matched_title: str
+    snippet: str
+    updated_at: str
+
+
+class NoteTitleConflictError(Exception):
+    def __init__(self, normalized_title: str) -> None:
+        super().__init__(f"A note with title '{normalized_title}' already exists")
+        self.normalized_title = normalized_title
 
 
 class NoteRepository:
@@ -77,6 +94,48 @@ class NoteRepository:
             seen.add(cleaned)
             normalized.append(cleaned)
         return normalized
+
+    def _normalize_title(self, note_title: str) -> str:
+        collapsed = " ".join(note_title.split())
+        return collapsed.strip()
+
+    def _normalize_title_key(self, note_title: str) -> str:
+        return self._normalize_title(note_title).lower()
+
+    def _assert_unique_title_for_note(self, *, note_id: str, note_title: str) -> None:
+        normalized_key = self._normalize_title_key(note_title)
+        rows = self._session.execute(
+            select(Note.note_id, Note.note_title).where(Note.note_id != note_id),
+        ).all()
+        for _existing_note_id, existing_title in rows:
+            if self._normalize_title_key(str(existing_title)) == normalized_key:
+                raise NoteTitleConflictError(self._normalize_title(note_title))
+
+    def _iter_wiki_link_titles(self, content_text: str) -> list[str]:
+        titles: list[str] = []
+        for match in WIKI_LINK_PATTERN.finditer(content_text):
+            normalized = self._normalize_title(match.group(1))
+            if normalized:
+                titles.append(normalized)
+        return titles
+
+    def _make_backlink_snippet(self, content_text: str, matched_title: str) -> str:
+        token = f"[[{matched_title}]]"
+        lower_content = content_text.lower()
+        lower_token = token.lower()
+        start = lower_content.find(lower_token)
+        if start < 0:
+            compact = " ".join(content_text.split())
+            return compact[:140] if compact else matched_title
+
+        window_start = max(0, start - 40)
+        window_end = min(len(content_text), start + len(token) + 80)
+        snippet = " ".join(content_text[window_start:window_end].split())
+        if window_start > 0:
+            snippet = f"...{snippet}"
+        if window_end < len(content_text):
+            snippet = f"{snippet}..."
+        return snippet or matched_title
 
     def _replace_tags(self, *, note_id: str, tags: list[str]) -> None:
         self._session.execute(
@@ -173,21 +232,23 @@ class NoteRepository:
         updated_at: str,
     ) -> NoteRecord:
         resolved_subject_id = subject_id.strip() or DEFAULT_SUBJECT_ID
+        normalized_title = self._normalize_title(note_title)
         normalized_tags = self._normalize_tags(tags)
 
+        self._assert_unique_title_for_note(note_id=note_id, note_title=normalized_title)
         self._ensure_subject(resolved_subject_id)
 
         existing = self._session.execute(
             select(Note).where(Note.note_id == note_id),
         ).scalar_one_or_none()
 
-        combined_for_hash = f"{note_title}\n\n{content_text}"
+        combined_for_hash = f"{normalized_title}\n\n{content_text}"
         content_hash = hashlib.sha256(combined_for_hash.encode("utf-8")).hexdigest()
         if existing is None:
             existing = Note(
                 note_id=note_id,
                 subject_id=resolved_subject_id,
-                note_title=note_title,
+                note_title=normalized_title,
                 is_pinned=is_pinned,
                 is_archived=is_archived,
                 content_json=content_json,
@@ -199,7 +260,7 @@ class NoteRepository:
             self._session.add(existing)
         else:
             existing.subject_id = resolved_subject_id
-            existing.note_title = note_title
+            existing.note_title = normalized_title
             existing.is_pinned = is_pinned
             existing.is_archived = is_archived
             existing.content_json = content_json
@@ -299,6 +360,46 @@ class NoteRepository:
             for row in rows
         ]
         return items, int(total)
+
+    def list_backlinks_for_note(self, note_id: str) -> list[BacklinkRecord]:
+        target = self._session.execute(
+            select(Note.note_id, Note.note_title).where(Note.note_id == note_id),
+        ).one_or_none()
+        if target is None:
+            return []
+
+        _, target_title = target
+        normalized_target_title = self._normalize_title(str(target_title))
+        normalized_target_key = normalized_target_title.lower()
+        if not normalized_target_title:
+            return []
+
+        rows = self._session.execute(
+            select(Note.note_id, Note.note_title, Note.content_text, Note.updated_at).where(
+                Note.note_id != note_id
+            ),
+        ).all()
+
+        backlinks: list[BacklinkRecord] = []
+        for source_note_id, source_note_title, source_content_text, source_updated_at in rows:
+            linked_titles = {
+                title.lower() for title in self._iter_wiki_link_titles(str(source_content_text))
+            }
+            if normalized_target_key not in linked_titles:
+                continue
+            backlinks.append(
+                BacklinkRecord(
+                    source_note_id=str(source_note_id),
+                    source_note_title=str(source_note_title),
+                    matched_title=normalized_target_title,
+                    snippet=self._make_backlink_snippet(str(source_content_text), normalized_target_title),
+                    updated_at=str(source_updated_at),
+                )
+            )
+
+        backlinks.sort(key=lambda item: item.source_note_id)
+        backlinks.sort(key=lambda item: item.updated_at, reverse=True)
+        return backlinks
 
     def list_note_ids(self) -> list[str]:
         rows = self._session.execute(

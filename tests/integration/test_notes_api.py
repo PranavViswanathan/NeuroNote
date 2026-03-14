@@ -117,6 +117,75 @@ def test_put_note_rejects_invalid_payload(client: TestClient) -> None:
     assert response.status_code == 422
 
 
+def test_put_note_rejects_duplicate_title_with_conflict(client: TestClient) -> None:
+    first = client.put(
+        "/v1/notes/conflict-a",
+        json=_payload(
+            "conflict-a",
+            "Body A",
+            "2026-03-13T12:00:00Z",
+            note_title="Duplicate Guard",
+        ),
+    )
+    assert first.status_code == 200
+
+    second = client.put(
+        "/v1/notes/conflict-b",
+        json=_payload(
+            "conflict-b",
+            "Body B",
+            "2026-03-13T12:01:00Z",
+            note_title="Duplicate Guard",
+        ),
+    )
+    assert second.status_code == 409
+    assert second.json()["detail"]["code"] == "note_title_conflict"
+
+
+def test_backlinks_endpoint_returns_wikilink_sources(client: TestClient) -> None:
+    client.put(
+        "/v1/notes/backlink-target",
+        json=_payload(
+            "backlink-target",
+            "Target body",
+            "2026-03-13T13:00:00Z",
+            note_title="Backlink Target",
+        ),
+    )
+    client.put(
+        "/v1/notes/backlink-source-1",
+        json=_payload(
+            "backlink-source-1",
+            "Reference [[Backlink Target]] in note one",
+            "2026-03-13T13:01:00Z",
+            note_title="Source One",
+        ),
+    )
+    client.put(
+        "/v1/notes/backlink-source-2",
+        json=_payload(
+            "backlink-source-2",
+            "Another ref [[backlink target]] in note two",
+            "2026-03-13T13:02:00Z",
+            note_title="Source Two",
+        ),
+    )
+
+    response = client.get("/v1/notes/backlink-target/backlinks")
+    assert response.status_code == 200
+    body = response.json()
+    assert body["note_id"] == "backlink-target"
+    assert [item["source_note_id"] for item in body["items"]] == [
+        "backlink-source-2",
+        "backlink-source-1",
+    ]
+
+
+def test_backlinks_endpoint_returns_404_for_unknown_note(client: TestClient) -> None:
+    response = client.get("/v1/notes/unknown-note/backlinks")
+    assert response.status_code == 404
+
+
 def test_list_notes_returns_saved_items_with_total(client: TestClient) -> None:
     client.put(
         "/v1/notes/note-list-1",

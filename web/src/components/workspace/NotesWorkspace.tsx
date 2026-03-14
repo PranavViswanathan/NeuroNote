@@ -4,7 +4,15 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 
 import { NoteEditor } from "../editor/NoteEditor";
-import { deleteNote, getNote, listNotes, saveNote } from "../../lib/api-client";
+import { BacklinksModal } from "./BacklinksModal";
+import {
+  ApiClientError,
+  deleteNote,
+  fetchNoteBacklinks,
+  getNote,
+  listNotes,
+  saveNote,
+} from "../../lib/api-client";
 import type { WorkspaceFilters } from "../../lib/workspace/types";
 import {
   buildQuickSwitchItems,
@@ -12,6 +20,7 @@ import {
   type QuickSwitchItem,
 } from "../../lib/workspace/quick-switch";
 import type { NoteSummary } from "../../../../shared/contracts/ts/v1/note";
+import type { BacklinkItem } from "../../../../shared/contracts/ts/v1/backlink";
 
 const SELECTED_NOTE_STORAGE_KEY = "neuronote.workspace.selected";
 const RECENT_NOTES_STORAGE_KEY = "neuronote.workspace.recent";
@@ -137,9 +146,15 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
   const [quickSwitchOpen, setQuickSwitchOpen] = useState(false);
   const [quickSwitchQuery, setQuickSwitchQuery] = useState("");
   const [quickSwitchSelectedIndex, setQuickSwitchSelectedIndex] = useState(0);
+  const [backlinksOpen, setBacklinksOpen] = useState(false);
+  const [backlinkItems, setBacklinkItems] = useState<BacklinkItem[]>([]);
+  const [backlinksLoading, setBacklinksLoading] = useState(false);
+  const [backlinksErrorMessage, setBacklinksErrorMessage] = useState<string | null>(null);
   const createInFlightRef = useRef(false);
   const contextMenuRef = useRef<HTMLUListElement | null>(null);
   const quickSwitchInputRef = useRef<HTMLInputElement | null>(null);
+  const backlinksTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const backlinkRequestTokenRef = useRef(0);
   const filtersInitializedRef = useRef(false);
 
   const filters: WorkspaceFilters = useMemo(
@@ -161,6 +176,52 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
     setQuickSwitchQuery("");
     setQuickSwitchSelectedIndex(0);
   }, []);
+
+  const closeBacklinksModal = useCallback(() => {
+    setBacklinksOpen(false);
+    setBacklinksLoading(false);
+    setBacklinksErrorMessage(null);
+    backlinkRequestTokenRef.current += 1;
+    window.setTimeout(() => {
+      backlinksTriggerRef.current?.focus();
+    }, 0);
+  }, []);
+
+  const loadBacklinks = useCallback(
+    async (noteId: string) => {
+      const token = backlinkRequestTokenRef.current + 1;
+      backlinkRequestTokenRef.current = token;
+      setBacklinksLoading(true);
+      setBacklinksErrorMessage(null);
+      try {
+        const response = await fetchNoteBacklinks(baseUrl, noteId);
+        if (backlinkRequestTokenRef.current !== token) {
+          return;
+        }
+        setBacklinkItems(response.items);
+      } catch {
+        if (backlinkRequestTokenRef.current !== token) {
+          return;
+        }
+        setBacklinkItems([]);
+        setBacklinksErrorMessage("Failed to load linked mentions");
+      } finally {
+        if (backlinkRequestTokenRef.current === token) {
+          setBacklinksLoading(false);
+        }
+      }
+    },
+    [baseUrl],
+  );
+
+  const openBacklinksModal = useCallback(() => {
+    if (!selectedNoteId) {
+      return;
+    }
+    setBacklinksOpen(true);
+    setBacklinkItems([]);
+    void loadBacklinks(selectedNoteId);
+  }, [loadBacklinks, selectedNoteId]);
 
   const openContextMenu = useCallback(
     (noteId: string, x: number, y: number) => {
@@ -327,6 +388,10 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
         return;
       }
       if (!quickSwitchOpen) {
+        if (backlinksOpen && event.key === "Escape") {
+          event.preventDefault();
+          closeBacklinksModal();
+        }
         return;
       }
       if (event.key === "Escape") {
@@ -339,7 +404,7 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [closeContextMenu, closeQuickSwitch, quickSwitchOpen]);
+  }, [backlinksOpen, closeBacklinksModal, closeContextMenu, closeQuickSwitch, quickSwitchOpen]);
 
   const handleMetadataSaved = useCallback(
     async (payload: WorkspaceMetadataSavedPayload) => {
@@ -442,8 +507,12 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
           updated_at: new Date().toISOString(),
         });
         await refreshNotes(noteId);
-      } catch {
+      } catch (error) {
         setNotes(previousNotes);
+        if (error instanceof ApiClientError && error.status === 409) {
+          setErrorMessage("A note with this title already exists");
+          return;
+        }
         setErrorMessage("Failed to rename note");
       }
     },
@@ -871,6 +940,17 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
       </aside>
 
       <main className="notes-editor-panel">
+        <div className="notes-editor-actions">
+          <button
+            type="button"
+            className="editor-command-button"
+            ref={backlinksTriggerRef}
+            onClick={openBacklinksModal}
+            disabled={!selectedNoteId}
+          >
+            Linked mentions
+          </button>
+        </div>
         {selectedNoteId ? (
           <NoteEditor
             key={selectedNoteId}
@@ -887,6 +967,25 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
           </div>
         )}
       </main>
+
+      <BacklinksModal
+        isOpen={backlinksOpen}
+        noteTitle={notes.find((item) => item.note_id === selectedNoteId)?.note_title ?? "Untitled"}
+        items={backlinkItems}
+        isLoading={backlinksLoading}
+        errorMessage={backlinksErrorMessage}
+        onClose={closeBacklinksModal}
+        onRetry={() => {
+          if (selectedNoteId) {
+            void loadBacklinks(selectedNoteId);
+          }
+        }}
+        onOpenSource={(noteId) => {
+          closeBacklinksModal();
+          setSelectedNoteId(noteId);
+          setHighlightedNoteId(noteId);
+        }}
+      />
 
       {quickSwitchOpen ? (
         <div

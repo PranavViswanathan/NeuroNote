@@ -26,7 +26,7 @@ Each story follows the working rule from `docs/codex.md`:
 - Product differentiation: passive, explainable semantic connections
 
 ## Progress Snapshot (2026-03-13)
-- Overall status: `Epic E0 complete`; `Epic E1 complete`; `Epic E2 complete`; `Epic E3 complete`; `Epic E4 complete`; `Epic E5 complete`; `Epic E6 complete`; `Epic E7 complete`; `Epic E8 complete`; `Epic E9 in progress`; `Epic E10 in progress`; `legacy Epics E6-E9 deprecated`; `commercial-track Epics E11-E12 planned`.
+- Overall status: `Epic E0 complete`; `Epic E1 complete`; `Epic E2 complete`; `Epic E3 complete`; `Epic E4 complete`; `Epic E5 complete`; `Epic E6 complete`; `Epic E7 complete`; `Epic E8 complete`; `Epic E9 complete`; `Epic E10 complete`; `legacy Epics E6-E9 deprecated`; `commercial-track Epics E11-E12 planned`.
 - Completed stories: `S0.1 Repository and service skeleton`, `S0.2 Quality bar and test harnesses`.
 - Completed stories: `S1.1 TipTap editor baseline`, `S1.2 Debounced autosave and processing triggers`.
 - Completed stories: `S2.1 Core relational schema for notes and blocks`, `S2.2 Graph and vector extension activation`.
@@ -36,6 +36,7 @@ Each story follows the working rule from `docs/codex.md`:
 - Completed stories: `S6.1 Note workspace shell and navigation`, `S6.2 Organization primitives`.
 - Completed stories: `S7.1 Common block and formatting feature set`, `S7.2 Slash commands and wiki-links`.
 - Completed stories: `S8.1 Math authoring and rendering`, `S8.2 Image upload and markdown export`.
+- Completed stories: `S10.1 Quick switcher and unified command surface`, `S10.2 Backlinks and linked mentions`.
 - Validation evidence:
   - `make setup` completed with `uv` and created `api/.venv`.
   - `make check` passed (`ruff`, `mypy`).
@@ -98,6 +99,11 @@ Each story follows the working rule from `docs/codex.md`:
   - Added searchable action + note result model for open/create/pin/archive flows with deterministic filtering.
   - Added workspace wiring for quick actions and archive toggle parity in context menu.
   - Validation results: compose web typecheck passed; targeted quick-switch tests passed (`22 passed`); full compose web suite `67 passed`.
+- E10 backlinks and linked-mentions pass completed (2026-03-13):
+  - Added backlink contracts and API endpoint (`GET /v1/notes/{note_id}/backlinks`) with deterministic wiki-link-based source ordering.
+  - Added workspace linked-mentions modal with loading/error/empty/data states, retry affordance, keyboard close (`Escape`), and focus restore.
+  - Added title-uniqueness write guardrail with `409 note_title_conflict` response for duplicate note-title saves.
+  - Validation results: compose API suite `116 passed, 5 skipped`; compose web suite `71 passed`; compose checks (`ruff`, `mypy`, web typecheck) passed.
 - Roadmap rebaseline completed (2026-03-12):
   - Legacy unfinished `E6-E9` are deprecated for planning purposes.
   - New commercial-track roadmap is now defined as `E6 Workspace`, `E7 Editor Commands`, `E8 Math/Images/Export`, `E9 UX Hardening`, `E10 Hybrid Workflows`, `E11 Guided Graph`, and `E12 Launch Hardening`.
@@ -188,6 +194,12 @@ Each story follows the working rule from `docs/codex.md`:
 - 2026-03-13: Workspace quick-switch uses a unified result model (actions + notes) with keyboard-first execution semantics.
   - Rationale: keep discovery and command execution deterministic from one interaction surface (`Cmd/Ctrl+K`) and reduce command drift.
   - Impacted areas: `web/src/lib/workspace/quick-switch.ts`, `web/src/components/workspace/NotesWorkspace.tsx`, `web/src/components/workspace/NotesWorkspace.test.tsx`.
+- 2026-03-13: Note titles are write-path unique with explicit `409` conflict semantics.
+  - Rationale: keep wiki-link title targeting unambiguous for backlinks without destructive migration-side rewrites.
+  - Impacted areas: `api/src/app/db/repositories/note_repository.py`, `api/src/app/routes/notes.py`, `tests/integration/test_notes_api.py`.
+- 2026-03-13: Backlinks are derived from explicit `[[Title]]` references and surfaced as a workspace modal flow.
+  - Rationale: provide deterministic, explainable linked-mention behavior while keeping v1 implementation lightweight.
+  - Impacted areas: `api/src/app/routes/backlinks.py`, `shared/contracts/*/v1/backlink.*`, `web/src/components/workspace/BacklinksModal.tsx`.
 
 ## Epic E0: Project Foundations and Delivery Guardrails [Completed 2026-03-01]
 Context: The scoping doc assumes a multi-service system. Without shared conventions, implementation speed will collapse under integration drift. This epic creates the base structure, contract boundaries, and CI quality gates so all later epics are reliable.
@@ -580,10 +592,10 @@ Subtask ST9.2.3.a: Apply visual-system tokens and remove ad-hoc editor spacing.
 Subtask ST9.2.3.b: Add robust command execution guardrails and user feedback.
 Subtask ST9.2.3.c: Ensure status indicators never get stuck in invalid states.
 
-## Epic E10: Hybrid Knowledge Workflows
+## Epic E10: Hybrid Knowledge Workflows [Completed 2026-03-13]
 Context: After UX debt burn-down, expand Notion-like productivity and Obsidian-like discovery in a single cohesive workflow.
 
-### Story S10.1: Quick switcher and unified command surface
+### Story S10.1: Quick switcher and unified command surface [Completed]
 Context: Fast note discovery and action execution should be available from anywhere.
 
 #### Task T10.1.1: Build quick-switch structure
@@ -601,7 +613,7 @@ Subtask ST10.1.3.a: Reuse shared command registry across editor and workspace.
 Subtask ST10.1.3.b: Add contextual action grouping and ranking.
 Subtask ST10.1.3.c: Add telemetry hooks for command adoption and failures.
 
-### Story S10.2: Backlinks and linked mentions
+### Story S10.2: Backlinks and linked mentions [Completed]
 Context: Linking intelligence should make relationships explainable and actionable.
 
 #### Task T10.2.1: Build backlink structure
@@ -696,7 +708,7 @@ Context: These are mandatory scenarios that validate the full architecture promi
 
 4. Workspace quick-switch and backlink workflows
 - `Cmd/Ctrl+K` quick-switch can open/create/filter notes without mouse-only actions.
-- Backlinks panel lists linked mentions with deterministic ordering and jump behavior.
+- Linked-mentions modal lists backlinks with deterministic ordering and jump behavior.
 
 5. Math and images
 - Inline/block LaTeX persists and renders consistently.

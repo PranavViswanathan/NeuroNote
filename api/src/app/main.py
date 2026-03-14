@@ -8,6 +8,7 @@ from app.db.config import get_database_settings
 from app.db.engine import get_session_factory, initialize_database
 from app.db.extensions import validate_required_extensions
 from app.routes.backfill import router as backfill_router
+from app.routes.backlinks import router as backlinks_router
 from app.routes.entity_aliases import router as entity_aliases_router
 from app.routes.export import router as export_router
 from app.routes.health import router as health_router
@@ -57,6 +58,7 @@ app.add_middleware(
 )
 app.include_router(health_router)
 app.include_router(notes_router, prefix="/v1")
+app.include_router(backlinks_router, prefix="/v1")
 app.include_router(process_router, prefix="/v1")
 app.include_router(entity_aliases_router, prefix="/v1")
 app.include_router(backfill_router, prefix="/v1")

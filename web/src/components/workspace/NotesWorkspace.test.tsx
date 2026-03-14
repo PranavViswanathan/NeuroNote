@@ -3,13 +3,29 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { NotesWorkspace } from "./NotesWorkspace";
-import { deleteNote, getNote, listNotes, saveNote } from "../../lib/api-client";
+import {
+  ApiClientError,
+  deleteNote,
+  fetchNoteBacklinks,
+  getNote,
+  listNotes,
+  saveNote,
+} from "../../lib/api-client";
 
 vi.mock("../../lib/api-client", () => ({
+  ApiClientError: class ApiClientError extends Error {
+    status: number;
+
+    constructor(status: number) {
+      super(`Request failed with status ${status}`);
+      this.status = status;
+    }
+  },
   listNotes: vi.fn(),
   saveNote: vi.fn(),
   deleteNote: vi.fn(),
   getNote: vi.fn(),
+  fetchNoteBacklinks: vi.fn(),
 }));
 
 vi.mock("../editor/NoteEditor", () => ({
@@ -219,6 +235,41 @@ describe("NotesWorkspace", () => {
       note_title: "Renamed from menu",
     });
     expect(promptSpy).toHaveBeenCalled();
+    promptSpy.mockRestore();
+  });
+
+  it("shows conflict message when rename collides with an existing title", async () => {
+    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("Duplicate Guard");
+    vi.mocked(listNotes).mockResolvedValue({
+      items: [noteSummary("note-a", { note_title: "Context A" })],
+      total: 1,
+    });
+    vi.mocked(getNote).mockResolvedValue({
+      note_id: "note-a",
+      note_title: "Context A",
+      subject_id: "inbox",
+      tags: [],
+      is_pinned: false,
+      is_archived: false,
+      content_json: { type: "doc", content: [] },
+      content_text: "Text note-a",
+      updated_at: "2026-03-12T20:00:00Z",
+      version: 1,
+    });
+    vi.mocked(saveNote).mockRejectedValue(new ApiClientError(409));
+
+    render(<NotesWorkspace baseUrl="http://localhost:8000" />);
+
+    const allSection = screen.getByTestId("notes-section-all");
+    await waitFor(() => {
+      expect(within(allSection).getByRole("button", { name: /Context A/ })).toBeInTheDocument();
+    });
+    fireEvent.contextMenu(within(allSection).getByRole("button", { name: /Context A/ }));
+    fireEvent.click(await screen.findByRole("menuitem", { name: "Rename note" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("A note with this title already exists")).toBeInTheDocument();
+    });
     promptSpy.mockRestore();
   });
 
@@ -584,6 +635,85 @@ describe("NotesWorkspace", () => {
     expect(vi.mocked(saveNote).mock.calls.at(-1)?.[1]).toMatchObject({
       note_id: "note-a",
       is_archived: true,
+    });
+  });
+
+  it("opens linked mentions modal and loads backlink items", async () => {
+    vi.mocked(listNotes).mockResolvedValue({
+      items: [noteSummary("note-a", { note_title: "Target Note" })],
+      total: 1,
+    });
+    vi.mocked(fetchNoteBacklinks).mockResolvedValue({
+      note_id: "note-a",
+      items: [
+        {
+          source_note_id: "note-b",
+          source_note_title: "Source Note",
+          matched_title: "Target Note",
+          snippet: "Reference [[Target Note]] from source",
+          updated_at: "2026-03-13T14:00:00Z",
+        },
+      ],
+    });
+
+    render(<NotesWorkspace baseUrl="http://localhost:8000" />);
+    await screen.findByTestId("notes-section-all");
+
+    const openButton = screen.getByRole("button", { name: "Linked mentions" });
+    fireEvent.click(openButton);
+
+    expect(await screen.findByRole("dialog", { name: "Linked mentions" })).toBeInTheDocument();
+    expect(await screen.findByText(/Source Note/)).toBeInTheDocument();
+    expect(fetchNoteBacklinks).toHaveBeenCalledWith("http://localhost:8000", "note-a");
+  });
+
+  it("supports escape to close linked mentions modal and restores focus", async () => {
+    vi.mocked(listNotes).mockResolvedValue({
+      items: [noteSummary("note-a", { note_title: "Target Note" })],
+      total: 1,
+    });
+    vi.mocked(fetchNoteBacklinks).mockResolvedValue({
+      note_id: "note-a",
+      items: [],
+    });
+
+    render(<NotesWorkspace baseUrl="http://localhost:8000" />);
+    await screen.findByTestId("notes-section-all");
+
+    const openButton = screen.getByRole("button", { name: "Linked mentions" });
+    openButton.focus();
+    fireEvent.click(openButton);
+
+    expect(await screen.findByRole("dialog", { name: "Linked mentions" })).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByRole("dialog", { name: "Linked mentions" })).not.toBeInTheDocument();
+    });
+    expect(openButton).toHaveFocus();
+  });
+
+  it("shows retry when linked mentions request fails", async () => {
+    vi.mocked(listNotes).mockResolvedValue({
+      items: [noteSummary("note-a", { note_title: "Target Note" })],
+      total: 1,
+    });
+    vi.mocked(fetchNoteBacklinks)
+      .mockRejectedValueOnce(new Error("backlink failure"))
+      .mockResolvedValueOnce({
+        note_id: "note-a",
+        items: [],
+      });
+
+    render(<NotesWorkspace baseUrl="http://localhost:8000" />);
+    await screen.findByTestId("notes-section-all");
+
+    fireEvent.click(screen.getByRole("button", { name: "Linked mentions" }));
+    expect(await screen.findByText("Failed to load linked mentions")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Retry linked mentions" }));
+
+    await waitFor(() => {
+      expect(fetchNoteBacklinks).toHaveBeenCalledTimes(2);
     });
   });
 });
