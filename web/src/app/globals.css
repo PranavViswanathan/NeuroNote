@@ -489,6 +489,13 @@ body {
   background: #eaf5ef;
 }
 
+.editor-flyout-option small {
+  display: block;
+  color: var(--text-muted);
+  font-size: 0.74rem;
+  margin-top: 2px;
+}
+
 .editor-flyout-loading {
   margin: 0;
   color: var(--text-muted);
@@ -522,6 +529,58 @@ body {
 
 .tiptap-editor .ProseMirror p:last-child {
   margin-bottom: 0;
+}
+
+.tiptap-editor .ProseMirror [data-indent-level="1"] {
+  margin-left: 1.2rem;
+}
+
+.tiptap-editor .ProseMirror [data-indent-level="2"] {
+  margin-left: 2.4rem;
+}
+
+.tiptap-editor .ProseMirror [data-indent-level="3"] {
+  margin-left: 3.6rem;
+}
+
+.tiptap-editor .ProseMirror [data-indent-level="4"] {
+  margin-left: 4.8rem;
+}
+
+.tiptap-editor .ProseMirror [data-indent-level="5"] {
+  margin-left: 6rem;
+}
+
+.tiptap-editor .ProseMirror [data-indent-level="6"] {
+  margin-left: 7.2rem;
+}
+
+.tiptap-editor .ProseMirror [data-indent-level]:not([data-indent-level="0"]) {
+  padding-left: 0.7rem;
+  border-left: 1px solid #c8ddcf;
+}
+
+.editor-hierarchy-hint {
+  margin: 0;
+  color: var(--text-muted);
+  font-size: 0.78rem;
+  padding: 2px 2px 0;
+}
+
+.editor-reference-link {
+  color: #0f6f4d;
+  text-decoration: underline;
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  border-radius: 4px;
+  padding: 0 2px;
+}
+
+.editor-reference-link:hover,
+.editor-reference-link:focus-visible {
+  background: #e8f4ec;
+  outline: none;
 }
 
 .tiptap-editor .ProseMirror h1,

@@ -15,7 +15,13 @@ if TYPE_CHECKING:
 class Block(Base):
     __tablename__ = "blocks"
     __table_args__ = (
-        UniqueConstraint("note_id", "block_index", name="uq_blocks_note_id_block_index"),
+        UniqueConstraint("note_id", "block_uid", name="uq_blocks_note_id_block_uid"),
+        UniqueConstraint(
+            "note_id",
+            "parent_block_uid",
+            "sibling_order",
+            name="uq_blocks_note_id_parent_sibling_order",
+        ),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -25,6 +31,9 @@ class Block(Base):
         nullable=False,
         index=True,
     )
+    block_uid: Mapped[str] = mapped_column(String(64), nullable=False, index=True)
+    parent_block_uid: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    sibling_order: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     block_index: Mapped[int] = mapped_column(Integer, nullable=False)
     content_text: Mapped[str] = mapped_column(Text, nullable=False)
     content_hash: Mapped[str] = mapped_column(String(64), nullable=False, index=True)

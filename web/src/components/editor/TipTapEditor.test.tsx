@@ -49,6 +49,7 @@ describe("TipTapEditor", () => {
     expect(screen.getByRole("button", { name: "Math Inline" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Math Block" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Image" })).toBeInTheDocument();
+    expect(screen.getByText("No nesting action available for current block")).toBeInTheDocument();
   });
 
   it("opens command palette from keyboard fallback", async () => {

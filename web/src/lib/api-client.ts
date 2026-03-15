@@ -15,6 +15,7 @@ import type {
   UploadImageResponse,
 } from "../../../shared/contracts/ts/v1/media";
 import type { BacklinksResponse } from "../../../shared/contracts/ts/v1/backlink";
+import type { BlockSearchResponse } from "../../../shared/contracts/ts/v1/block";
 
 export class ApiClientError extends Error {
   status: number;
@@ -173,4 +174,19 @@ export async function fetchNoteBacklinks(
 ): Promise<BacklinksResponse> {
   const response = await fetch(`${baseUrl}/v1/notes/${noteId}/backlinks`);
   return parseJsonResponse<BacklinksResponse>(response);
+}
+
+export async function searchBlocks(
+  baseUrl: string,
+  query: string,
+  options: { note_id?: string; limit?: number } = {},
+): Promise<BlockSearchResponse> {
+  const params = new URLSearchParams();
+  params.set("q", query);
+  if (options.note_id) {
+    params.set("note_id", options.note_id);
+  }
+  params.set("limit", String(options.limit ?? 8));
+  const response = await fetch(`${baseUrl}/v1/blocks/search?${params.toString()}`);
+  return parseJsonResponse<BlockSearchResponse>(response);
 }

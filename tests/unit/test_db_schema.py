@@ -42,11 +42,18 @@ def test_foreign_keys_and_indexes_exist(configured_db: None) -> None:
     block_indexes = {index["name"] for index in inspector.get_indexes("blocks")}
     assert "ix_blocks_note_id" in block_indexes
     assert "ix_blocks_content_hash" in block_indexes
+    assert "ix_blocks_block_uid" in block_indexes
+    assert "ix_blocks_parent_block_uid" in block_indexes
 
     block_uniques = inspector.get_unique_constraints("blocks")
     assert any(
-        constraint.get("name") == "uq_blocks_note_id_block_index"
-        or constraint.get("column_names") == ["note_id", "block_index"]
+        constraint.get("name") == "uq_blocks_note_id_block_uid"
+        or constraint.get("column_names") == ["note_id", "block_uid"]
+        for constraint in block_uniques
+    )
+    assert any(
+        constraint.get("name") == "uq_blocks_note_id_parent_sibling_order"
+        or constraint.get("column_names") == ["note_id", "parent_block_uid", "sibling_order"]
         for constraint in block_uniques
     )
 

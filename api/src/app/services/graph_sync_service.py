@@ -7,8 +7,14 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.db.models.block import Block
+from app.db.repositories.block_repository import BlockRepository
 from app.db.repositories.graph_repository import GraphRepository
-from app.nlp.types import ExtractedEntity, ExtractedKeyphrase, ExtractedRelation
+from app.nlp.types import (
+    ExtractedEntity,
+    ExtractedEntityMention,
+    ExtractedKeyphrase,
+    ExtractedRelation,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -30,6 +36,7 @@ class GraphSyncPayload:
     relations: list[ExtractedRelation]
     resolved_entities: dict[str, CanonicalEntityMapping]
     embedding: list[float] | None
+    entity_mentions: list[ExtractedEntityMention]
 
 
 def _utc_now_iso() -> str:
@@ -56,7 +63,15 @@ class GraphSyncService:
             ).scalars()
         )
 
-    def _upsert_note_and_blocks(self, *, payload: GraphSyncPayload, now_iso: str) -> list[Block]:
+    def _block_node_id(self, *, note_id: str, block_uid: str) -> str:
+        return f"{note_id}:block:{block_uid}"
+
+    def _upsert_note_and_blocks(
+        self,
+        *,
+        payload: GraphSyncPayload,
+        now_iso: str,
+    ) -> tuple[list[Block], dict[int, str], dict[str, str]]:
         self._repository.delete_source_artifacts(
             source_note_id=payload.note_id,
             graph_name=self._graph_name,
@@ -98,12 +113,19 @@ class GraphSyncService:
         )
 
         blocks = self._iter_blocks(payload.note_id)
+        block_node_ids_by_index: dict[int, str] = {}
+        block_node_ids_by_uid: dict[str, str] = {}
         for block in blocks:
-            block_node_id = f"{payload.note_id}:block:{block.block_index}"
+            block_node_id = self._block_node_id(note_id=payload.note_id, block_uid=block.block_uid)
+            block_node_ids_by_index[block.block_index] = block_node_id
+            block_node_ids_by_uid[block.block_uid] = block_node_id
             self._repository.upsert_node(
                 label="Block",
                 node_id=block_node_id,
                 properties={
+                    "block_uid": block.block_uid,
+                    "parent_block_uid": block.parent_block_uid,
+                    "sibling_order": block.sibling_order,
                     "block_index": block.block_index,
                     "content_hash": block.content_hash,
                     "text": block.content_text,
@@ -113,6 +135,9 @@ class GraphSyncService:
                 },
                 graph_name=self._graph_name,
             )
+
+        for block in blocks:
+            block_node_id = block_node_ids_by_uid[block.block_uid]
             self._repository.upsert_typed_edge(
                 source_label="Note",
                 source_id=payload.note_id,
@@ -128,15 +153,35 @@ class GraphSyncService:
                 graph_name=self._graph_name,
             )
 
-        return blocks
+            if block.parent_block_uid and block.parent_block_uid in block_node_ids_by_uid:
+                parent_node_id = block_node_ids_by_uid[block.parent_block_uid]
+                self._repository.upsert_typed_edge(
+                    source_label="Block",
+                    source_id=parent_node_id,
+                    target_label="Block",
+                    target_id=block_node_id,
+                    relation_type="HAS_CHILD",
+                    properties={
+                        "source_note_id": payload.note_id,
+                        "confidence": 1.0,
+                        "created_at": now_iso,
+                        "updated_at": now_iso,
+                    },
+                    graph_name=self._graph_name,
+                )
+
+        return blocks, block_node_ids_by_index, block_node_ids_by_uid
 
     def _upsert_mentions(
         self,
         *,
         blocks: list[Block],
+        block_node_ids_by_index: dict[int, str],
         payload: GraphSyncPayload,
         now_iso: str,
     ) -> None:
+        entity_by_id = {entity.entity_id: entity for entity in payload.entities}
+
         for keyphrase in payload.keyphrases:
             self._repository.upsert_node(
                 label="Concept",
@@ -165,7 +210,9 @@ class GraphSyncService:
             for block in blocks:
                 if keyphrase.text.lower() not in block.content_text.lower():
                     continue
-                block_node_id = f"{payload.note_id}:block:{block.block_index}"
+                block_node_id = block_node_ids_by_index.get(block.block_index)
+                if block_node_id is None:
+                    continue
                 self._repository.upsert_typed_edge(
                     source_label="Block",
                     source_id=block_node_id,
@@ -185,11 +232,6 @@ class GraphSyncService:
             resolved = payload.resolved_entities.get(entity.entity_id)
             canonical_id = resolved.canonical_entity_id if resolved is not None else entity.entity_id
             canonical_name = resolved.canonical_name if resolved is not None else entity.text
-            confidence = (
-                max(float(entity.confidence), float(resolved.confidence))
-                if resolved is not None
-                else float(entity.confidence)
-            )
             self._repository.upsert_node(
                 label="Entity",
                 node_id=canonical_id,
@@ -200,19 +242,104 @@ class GraphSyncService:
                 },
                 graph_name=self._graph_name,
             )
-            for block in blocks:
-                if entity.text.lower() not in block.content_text.lower():
+
+        seen_mentions: set[tuple[str, str, int, int]] = set()
+        for mention in payload.entity_mentions:
+            mention_block_node_id = block_node_ids_by_index.get(mention.block_index)
+            if mention_block_node_id is None:
+                continue
+            source_entity = entity_by_id.get(mention.entity_id)
+            if source_entity is None:
+                continue
+
+            resolved = payload.resolved_entities.get(source_entity.entity_id)
+            canonical_id = resolved.canonical_entity_id if resolved is not None else source_entity.entity_id
+            mention_key = (
+                mention_block_node_id,
+                canonical_id,
+                mention.start_offset,
+                mention.end_offset,
+            )
+            if mention_key in seen_mentions:
+                continue
+            seen_mentions.add(mention_key)
+
+            mention_confidence = (
+                max(float(source_entity.confidence), float(resolved.confidence))
+                if resolved is not None
+                else float(source_entity.confidence)
+            )
+            mention_confidence = max(mention_confidence, float(mention.confidence))
+            self._repository.upsert_typed_edge(
+                source_label="Block",
+                source_id=mention_block_node_id,
+                target_label="Entity",
+                target_id=canonical_id,
+                relation_type="MENTIONS",
+                properties={
+                    "source_note_id": payload.note_id,
+                    "confidence": mention_confidence,
+                    "mention_text": mention.mention_text,
+                    "start_offset": int(mention.start_offset),
+                    "end_offset": int(mention.end_offset),
+                    "created_at": now_iso,
+                    "updated_at": now_iso,
+                },
+                graph_name=self._graph_name,
+            )
+
+    def _upsert_block_refs(
+        self,
+        *,
+        blocks: list[Block],
+        block_node_ids_by_uid: dict[str, str],
+        payload: GraphSyncPayload,
+        now_iso: str,
+    ) -> None:
+        block_repository = BlockRepository(self._session)
+        ref_uids: set[str] = set()
+        refs_by_source_uid: dict[str, list[str]] = {}
+
+        for block in blocks:
+            refs = block_repository.extract_block_refs_from_rich_content(dict(block.rich_content))
+            if not refs:
+                refs = block_repository.extract_block_refs(block.content_text)
+            refs_by_source_uid[block.block_uid] = refs
+            ref_uids.update(refs)
+
+        if not ref_uids:
+            return
+
+        target_rows = block_repository.get_blocks_by_uid(list(ref_uids))
+        target_node_ids = {
+            row.block_uid: self._block_node_id(note_id=row.note_id, block_uid=row.block_uid)
+            for row in target_rows
+        }
+
+        emitted_pairs: set[tuple[str, str]] = set()
+        for source_block in blocks:
+            source_node_id = block_node_ids_by_uid.get(source_block.block_uid)
+            if source_node_id is None:
+                continue
+            for target_uid in refs_by_source_uid.get(source_block.block_uid, []):
+                target_node_id = target_node_ids.get(target_uid)
+                if target_node_id is None:
                     continue
-                block_node_id = f"{payload.note_id}:block:{block.block_index}"
+                if source_node_id == target_node_id:
+                    continue
+                pair = (source_node_id, target_node_id)
+                if pair in emitted_pairs:
+                    continue
+                emitted_pairs.add(pair)
                 self._repository.upsert_typed_edge(
                     source_label="Block",
-                    source_id=block_node_id,
-                    target_label="Entity",
-                    target_id=canonical_id,
-                    relation_type="MENTIONS",
+                    source_id=source_node_id,
+                    target_label="Block",
+                    target_id=target_node_id,
+                    relation_type="REFERS_TO",
                     properties={
                         "source_note_id": payload.note_id,
-                        "confidence": confidence,
+                        "confidence": 1.0,
                         "created_at": now_iso,
                         "updated_at": now_iso,
                     },
@@ -285,8 +412,22 @@ class GraphSyncService:
 
     def sync_note_graph(self, payload: GraphSyncPayload) -> None:
         now_iso = _utc_now_iso()
-        blocks = self._upsert_note_and_blocks(payload=payload, now_iso=now_iso)
-        self._upsert_mentions(blocks=blocks, payload=payload, now_iso=now_iso)
+        blocks, block_node_ids_by_index, block_node_ids_by_uid = self._upsert_note_and_blocks(
+            payload=payload,
+            now_iso=now_iso,
+        )
+        self._upsert_mentions(
+            blocks=blocks,
+            block_node_ids_by_index=block_node_ids_by_index,
+            payload=payload,
+            now_iso=now_iso,
+        )
+        self._upsert_block_refs(
+            blocks=blocks,
+            block_node_ids_by_uid=block_node_ids_by_uid,
+            payload=payload,
+            now_iso=now_iso,
+        )
         self._upsert_relations(payload=payload, now_iso=now_iso)
 
         if payload.embedding is not None:
@@ -295,4 +436,3 @@ class GraphSyncService:
                 item_type="note",
                 embedding=payload.embedding,
             )
-

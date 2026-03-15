@@ -4,7 +4,7 @@ NeuroNote is a monorepo with a web frontend, a Python API service, shared contra
 
 ## Services
 - `web/`: Next.js frontend with workspace sidebar (create/open/right-click actions), pinned/all note sections, organization controls, editor autosave orchestration, and API clients.
-- `api/`: FastAPI service for health, note persistence/listing, organization-aware note queries, note-processing endpoints, backlink retrieval, media asset upload/retrieval/deletion, and markdown export.
+- `api/`: FastAPI service for health, note persistence/listing, organization-aware note queries, deterministic note-processing endpoints (block-level entity mentions + canonical resolution), note/block backlink retrieval, block hierarchy APIs, media asset upload/retrieval/deletion, and markdown export.
 - `shared/`: versioned request/response contracts shared across services.
 - `infra/`: local infrastructure orchestration.
 - `tests/`: repository-level structure and integration tests.
@@ -42,6 +42,7 @@ Schema ownership is migration-first:
 - Migration `20260311_0003` is idempotent for pre-existing `notes.note_title` columns.
 - Migration `20260312_0004` is idempotent for workspace-organization schema (`notes` flags + `note_tags`).
 - Migration `20260313_0005` is idempotent for media schema (`note_assets`).
+- Migration `20260314_0006` backfills tree block fields (`block_uid`, `parent_block_uid`, `sibling_order`) and constraints.
 
 ### Common Commands
 - API checks: `make compose-check`
@@ -121,6 +122,14 @@ JSON
 ```
 3. Check calibration metrics:
    - `curl http://127.0.0.1:8000/v1/entity-aliases/calibration`
+
+## Validate Deterministic Mention Evidence Flow
+1. Save a note with multiple blocks where only one block contains a target entity.
+2. Trigger `/v1/process-note` and wait for `completed`.
+3. Confirm graph note node still exists:
+   - `docker compose -f infra/docker-compose.yml exec -T db psql -U neuronote -d neuronote -c "LOAD 'age'; SET search_path = ag_catalog, \"\\$user\", public; SELECT * FROM cypher('neuronote', \\$\\$ MATCH (n:Note {id:'demo-note'}) RETURN n.id \\$\\$) AS (id agtype);"`
+4. Confirm `MENTIONS` edges are block-scoped and mention-evidence based:
+   - `docker compose -f infra/docker-compose.yml exec -T db psql -U neuronote -d neuronote -c "LOAD 'age'; SET search_path = ag_catalog, \"\\$user\", public; SELECT * FROM cypher('neuronote', \\$\\$ MATCH (b:Block)-[r:MENTIONS]->(e:Entity) WHERE r.source_note_id='demo-note' RETURN b.id, e.id, r.mention_text, r.start_offset, r.end_offset \\$\\$) AS (block_id agtype, entity_id agtype, mention_text agtype, start_offset agtype, end_offset agtype);"`
 
 ## Validate Workspace Filters
 The notes list endpoint supports workspace organization filters:
@@ -202,6 +211,32 @@ Expected:
 7. Click `Linked mentions` in the editor panel:
    - modal opens with loading/error/empty/data states.
    - pressing `Escape` closes the modal and restores focus to the trigger.
+
+## Validate Block Hierarchy + Block References (Selective Nesting)
+1. Confirm block tree API output after saving a note:
+```bash
+curl -sS http://127.0.0.1:8000/v1/notes/demo-note/blocks
+```
+Expected:
+- each item includes `block_uid`, `parent_block_uid`, `sibling_order`, `block_index`.
+2. Search block references by text:
+```bash
+curl -sS "http://127.0.0.1:8000/v1/blocks/search?q=graph&limit=10"
+```
+3. In the editor UI:
+- create a bulleted list item and press `Tab` to indent, `Shift+Tab` to outdent.
+- in headings/paragraphs, `Tab` nests the current block under the previous block and `Shift+Tab` outdents (Notion-style block hierarchy).
+4. Insert a manual block reference:
+- type `((` inside a note, choose a suggestion, and verify a readable clickable link is inserted.
+5. Validate clickable references:
+- clicking a `[[Note Title]]` reference navigates to the referenced note route.
+- clicking a block reference navigates to the referenced note with block anchor hash.
+6. Resolve block backlinks:
+```bash
+curl -sS http://127.0.0.1:8000/v1/blocks/<block_uid>/backlinks
+```
+Expected:
+- `items` include source note/block and snippet where the token was used.
 
 ## Validate Math, Image, and Export Flow (Epic E8)
 1. Save/update a note:

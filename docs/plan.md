@@ -25,7 +25,7 @@ Each story follows the working rule from `docs/codex.md`:
 - Background jobs: FastAPI BackgroundTasks first, Huey later
 - Product differentiation: passive, explainable semantic connections
 
-## Progress Snapshot (2026-03-13)
+## Progress Snapshot (2026-03-14)
 - Overall status: `Epic E0 complete`; `Epic E1 complete`; `Epic E2 complete`; `Epic E3 complete`; `Epic E4 complete`; `Epic E5 complete`; `Epic E6 complete`; `Epic E7 complete`; `Epic E8 complete`; `Epic E9 complete`; `Epic E10 complete`; `legacy Epics E6-E9 deprecated`; `commercial-track Epics E11-E12 planned`.
 - Completed stories: `S0.1 Repository and service skeleton`, `S0.2 Quality bar and test harnesses`.
 - Completed stories: `S1.1 TipTap editor baseline`, `S1.2 Debounced autosave and processing triggers`.
@@ -36,7 +36,7 @@ Each story follows the working rule from `docs/codex.md`:
 - Completed stories: `S6.1 Note workspace shell and navigation`, `S6.2 Organization primitives`.
 - Completed stories: `S7.1 Common block and formatting feature set`, `S7.2 Slash commands and wiki-links`.
 - Completed stories: `S8.1 Math authoring and rendering`, `S8.2 Image upload and markdown export`.
-- Completed stories: `S10.1 Quick switcher and unified command surface`, `S10.2 Backlinks and linked mentions`.
+- Completed stories: `S10.1 Quick switcher and unified command surface`, `S10.2 Backlinks and linked mentions`, `S10.3 Selective block hierarchy and manual block references`.
 - Validation evidence:
   - `make setup` completed with `uv` and created `api/.venv`.
   - `make check` passed (`ruff`, `mypy`).
@@ -104,6 +104,40 @@ Each story follows the working rule from `docs/codex.md`:
   - Added workspace linked-mentions modal with loading/error/empty/data states, retry affordance, keyboard close (`Escape`), and focus restore.
   - Added title-uniqueness write guardrail with `409 note_title_conflict` response for duplicate note-title saves.
   - Validation results: compose API suite `116 passed, 5 skipped`; compose web suite `71 passed`; compose checks (`ruff`, `mypy`, web typecheck) passed.
+- Deterministic NLP/linking hardening pass completed (2026-03-14):
+  - Added block-level entity mention extraction with deterministic dictionary-first spotting and span offsets.
+  - Added deterministic resolver candidate ranking with configurable abstain threshold (`min_resolution_score`).
+  - Graph sync now writes `Block -> Entity` `MENTIONS` edges from explicit mention evidence, replacing substring-only matching.
+  - Validation results: focused API lint/type/tests passed (`ruff`, `mypy`, `27` tests across NLP/resolver/process/graph flows).
+- Selective hierarchy + block reference pass completed (2026-03-14):
+  - Replaced flattened block persistence with tree fields (`block_uid`, `parent_block_uid`, `sibling_order`) and migration `20260314_0006`.
+  - Added block APIs: note block listing, block search, and block backlinks (`/v1/notes/{note_id}/blocks`, `/v1/blocks/search`, `/v1/blocks/{block_uid}/backlinks`).
+  - Added editor selective nesting (`Tab`/`Shift+Tab` list-item indent/outdent only when valid) and inline block-reference insertion via `((...))` autocomplete.
+  - Graph sync now writes deterministic `Block -> Block` `REFERS_TO` edges from explicit block-ref tokens.
+  - Validation results: Python suite `132 passed, 5 skipped`; compose web suite `77 passed`; checks/typecheck passed.
+- Notion-parity hierarchy/refinement pass completed (2026-03-14):
+  - Updated editor nesting behavior to allow heading/paragraph and other core block indentation using `Tab`/`Shift+Tab` semantics aligned to Notion block nesting.
+  - Added visual hierarchy hints and persisted block ancestry metadata (`parentBlockUid`, `indentLevel`) on editor blocks.
+  - Upgraded note and block references to clickable hyperlink marks (`referenceLink`) while keeping deterministic backend reference extraction for graph/backlink flows.
+  - Validation results: Python suite `135 passed, 5 skipped`; compose web suite `81 passed`; typecheck/check passed.
+- E9 completion hardening pass completed (2026-03-14):
+  - Added note-media reconciliation fallback for missing `note_assets` table errors during delete-mark phase to prevent note-save `500`s in partially migrated runtimes.
+  - Added workspace recent-chip selection sync to keep selected/highlighted state deterministic.
+  - Added regression coverage for missing-table reconciliation in unit/integration tests and recent-chip highlight behavior in workspace tests.
+  - Validation results: Python suite `137 passed, 5 skipped`; compose web suite `84 passed`; typecheck/check passed.
+- Block UID collision hardening pass completed (2026-03-14):
+  - Added backend block-UID normalization that rewrites duplicate `blockUid` values within a note payload and remaps dependent `parentBlockUid` values.
+  - Added deep-copy normalization path so corrected block IDs are persisted back into note JSON, not only block table rows.
+  - Added regression coverage for duplicate `blockUid` payloads and parent remapping behavior.
+  - Validation results: Python suite `138 passed, 5 skipped`; `ruff` passed.
+- Media schema repair migration pass completed (2026-03-14):
+  - Added Alembic revision `20260314_0007` to repair drifted environments where `alembic_version` advanced but `public.note_assets` was missing.
+  - Migration creates `public.note_assets` and `ix_note_assets_note_id` idempotently and safely in forward direction.
+  - Validation results: Python suite `140 passed, 5 skipped`; live compose DB verified (`alembic_version=20260314_0007`, `public.note_assets` present).
+- Media transaction + SSR hardening pass completed (2026-03-14):
+  - Made PostgreSQL `note_assets` existence probe transaction-neutral to avoid implicit session autobegin before media route transaction blocks.
+  - Added TipTap `immediatelyRender: false` to eliminate SSR hydration mismatch warnings in Next.js runtime.
+  - Validation results: Python suite `140 passed, 5 skipped`; web typecheck passed; targeted TipTap web tests passed in compose.
 - Roadmap rebaseline completed (2026-03-12):
   - Legacy unfinished `E6-E9` are deprecated for planning purposes.
   - New commercial-track roadmap is now defined as `E6 Workspace`, `E7 Editor Commands`, `E8 Math/Images/Export`, `E9 UX Hardening`, `E10 Hybrid Workflows`, `E11 Guided Graph`, and `E12 Launch Hardening`.
@@ -191,6 +225,9 @@ Each story follows the working rule from `docs/codex.md`:
 - 2026-03-13: `note_assets` schema checks are PostgreSQL schema-qualified and reconciliation tolerates undefined-table errors.
   - Rationale: avoid false-positive schema checks and prevent note-save failures in partially migrated runtime environments.
   - Impacted areas: `api/src/app/services/note_asset_service.py`, `tests/unit/test_note_asset_service.py`.
+- 2026-03-14: Media reconciliation tolerates missing `note_assets` errors in delete-mark path as well as read path.
+  - Rationale: note saves must remain available when runtime schema is partially migrated or drifting.
+  - Impacted areas: `api/src/app/services/note_asset_service.py`, `tests/unit/test_note_asset_service.py`, `tests/integration/test_notes_api.py`.
 - 2026-03-13: Workspace quick-switch uses a unified result model (actions + notes) with keyboard-first execution semantics.
   - Rationale: keep discovery and command execution deterministic from one interaction surface (`Cmd/Ctrl+K`) and reduce command drift.
   - Impacted areas: `web/src/lib/workspace/quick-switch.ts`, `web/src/components/workspace/NotesWorkspace.tsx`, `web/src/components/workspace/NotesWorkspace.test.tsx`.
@@ -200,6 +237,24 @@ Each story follows the working rule from `docs/codex.md`:
 - 2026-03-13: Backlinks are derived from explicit `[[Title]]` references and surfaced as a workspace modal flow.
   - Rationale: provide deterministic, explainable linked-mention behavior while keeping v1 implementation lightweight.
   - Impacted areas: `api/src/app/routes/backlinks.py`, `shared/contracts/*/v1/backlink.*`, `web/src/components/workspace/BacklinksModal.tsx`.
+- 2026-03-14: Entity linking evidence is block-first and mention-span driven.
+  - Rationale: remove false-positive substring matches and make link provenance explainable and deterministic.
+  - Impacted areas: `api/src/app/nlp/spotting.py`, `api/src/app/nlp/resolution/ranking.py`, `api/src/app/services/graph_sync_service.py`, `api/src/app/services/note_processing_service.py`.
+- 2026-03-14: Block storage uses adjacency-list tree semantics and manual references use canonical `((block_uid))` tokens.
+  - Rationale: preserve stable block identity under reordering/nesting and provide deterministic, explicit block-to-block linking.
+  - Impacted areas: `api/src/app/db/models/block.py`, `api/src/app/db/repositories/block_repository.py`, `api/src/app/routes/blocks.py`, `api/src/app/services/graph_sync_service.py`, `web/src/components/editor/TipTapEditor.tsx`.
+- 2026-03-14: Editor nesting behavior follows Notion-style block indentation semantics (`Tab` nest under previous block, `Shift+Tab` outdent).
+  - Rationale: users expect uniform outliner-like hierarchy across headings, paragraphs, and common block types, not list-only indentation.
+  - Impacted areas: `web/src/lib/editor/block-hierarchy.ts`, `web/src/lib/editor/extensions/block-hierarchy.ts`, `web/src/components/editor/TipTapEditor.tsx`.
+- 2026-03-14: Block persistence normalizes duplicate `blockUid` values server-side.
+  - Rationale: editor payload drift or copy/paste collisions must never cause `uq_blocks_note_id_block_uid` write failures.
+  - Impacted areas: `api/src/app/db/repositories/block_repository.py`, `tests/unit/test_block_repository.py`.
+- 2026-03-14: Media schema repair is migration-owned via forward idempotent revision.
+  - Rationale: environments stamped at newer heads must still converge to required media schema (`public.note_assets`) without manual SQL.
+  - Impacted areas: `api/alembic/versions/20260314_0007_note_assets_repair.py`, `tests/unit/test_note_assets_repair_migration.py`.
+- 2026-03-14: PostgreSQL media schema probes must not start ORM transactions.
+  - Rationale: preflight checks that autobegin sessions can cause nested transaction failures in write routes.
+  - Impacted areas: `api/src/app/services/note_asset_service.py`, `tests/unit/test_note_asset_service.py`, `api/src/app/routes/media.py`.
 
 ## Epic E0: Project Foundations and Delivery Guardrails [Completed 2026-03-01]
 Context: The scoping doc assumes a multi-service system. Without shared conventions, implementation speed will collapse under integration drift. This epic creates the base structure, contract boundaries, and CI quality gates so all later epics are reliable.
@@ -553,10 +608,10 @@ Subtask ST8.2.3.a: Add local disk storage implementation.
 Subtask ST8.2.3.b: Add orphan cleanup behavior.
 Subtask ST8.2.3.c: Add export packaging and integration tests.
 
-## Epic E9: UX Debt Burn-Down and Interaction Reliability
+## Epic E9: UX Debt Burn-Down and Interaction Reliability [Completed 2026-03-14]
 Context: Current UX regressions and interaction inconsistency are the largest blocker to commercial trust. This epic prioritizes stability and clarity before adding more surface area.
 
-### Story S9.1: Workspace information architecture consistency
+### Story S9.1: Workspace information architecture consistency [Completed]
 Context: Notes list behavior must be deterministic and free of duplicate/pinned drift.
 
 #### Task T9.1.1: Build workspace reliability structure
@@ -574,7 +629,7 @@ Subtask ST9.1.3.a: Add optimistic UI updates with rollback on failures.
 Subtask ST9.1.3.b: Add retry affordances for failed list/save operations.
 Subtask ST9.1.3.c: Add deterministic selection and highlight behavior after list refresh.
 
-### Story S9.2: Editor ergonomics and command reliability
+### Story S9.2: Editor ergonomics and command reliability [Completed]
 Context: Editor readability and command reliability must be predictable in all core writing flows.
 
 #### Task T9.2.1: Build editor UX structure
@@ -630,6 +685,24 @@ Subtask ST10.2.2.c: Test degraded behavior when backlink query fails.
 Subtask ST10.2.3.a: Add backend backlink materialization query path.
 Subtask ST10.2.3.b: Add UI rendering with loading/error/empty states.
 Subtask ST10.2.3.c: Add inline explanation labels for why links exist.
+
+### Story S10.3: Selective block hierarchy and manual block references [Completed 2026-03-14]
+Context: Commercial note UX needs intuitive hierarchy behavior and explicit block-level linking that is deterministic and inspectable.
+
+#### Task T10.3.1: Build tree block + block-ref structure [Completed]
+Subtask ST10.3.1.a: Extend `blocks` schema with `block_uid`, `parent_block_uid`, `sibling_order` and preserve compatibility via migration.
+Subtask ST10.3.1.b: Add block contracts and API surfaces for list/search/backlinks.
+Subtask ST10.3.1.c: Add editor block-ref parser/token utilities and key-action model for indent/outdent behavior.
+
+#### Task T10.3.2: Write hierarchy/reference tests [Completed]
+Subtask ST10.3.2.a: Add repository tests for tree persistence, scoped block search, and block backlinks.
+Subtask ST10.3.2.b: Add service tests for `REFERS_TO` edge emission from explicit `((block_uid))` references.
+Subtask ST10.3.2.c: Add integration/frontend tests for block APIs and block-ref/key-handler utilities.
+
+#### Task T10.3.3: Implement hierarchy/reference logic [Completed]
+Subtask ST10.3.3.a: Implement recursive block extraction and adjacency-list persistence.
+Subtask ST10.3.3.b: Implement selective nesting UX (`Tab` indent / `Shift+Tab` outdent only for valid list contexts).
+Subtask ST10.3.3.c: Implement inline block-reference autocomplete/insertion and graph `REFERS_TO` synchronization.
 
 ## Epic E11: Guided Graph Experience (Local First + Global On Demand)
 Context: Graph differentiation remains important, but with strict scope and performance boundaries.

@@ -166,6 +166,38 @@ describe("NotesWorkspace", () => {
     expect(within(allSection).queryByRole("button", { name: /Pinned A/ })).not.toBeInTheDocument();
   });
 
+  it("keeps selection and highlight in sync when selecting from recent chips", async () => {
+    vi.mocked(listNotes).mockResolvedValue({
+      items: [noteSummary("note-a"), noteSummary("note-b")],
+      total: 2,
+    });
+
+    render(<NotesWorkspace baseUrl="http://localhost:8000" />);
+
+    const allSection = await screen.findByTestId("notes-section-all");
+    fireEvent.click(within(allSection).getByRole("button", { name: /Title note-b/ }));
+    await waitFor(() => {
+      expect(screen.getByTestId("active-note-id")).toHaveTextContent("note-b");
+    });
+
+    const recentSection = await screen.findByTestId("notes-section-recent");
+    fireEvent.click(within(recentSection).getByRole("button", { name: "Title note-a" }));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("active-note-id")).toHaveTextContent("note-a");
+    });
+    expect(
+      within(allSection)
+        .getByRole("button", { name: /Title note-a/ })
+        .className,
+    ).toContain("highlighted");
+    expect(
+      within(allSection)
+        .getByRole("button", { name: /Title note-b/ })
+        .className,
+    ).not.toContain("highlighted");
+  });
+
   it("opens note context menu on right click and removes top-level rename/delete actions", async () => {
     vi.mocked(listNotes).mockResolvedValue({
       items: [noteSummary("note-a", { note_title: "Context A" })],

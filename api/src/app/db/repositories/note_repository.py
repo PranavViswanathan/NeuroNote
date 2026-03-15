@@ -271,11 +271,13 @@ class NoteRepository:
 
         self._session.flush()
         self._replace_tags(note_id=note_id, tags=normalized_tags)
-        self._blocks.replace_blocks(
+        normalized_content_json = self._blocks.replace_blocks(
             note_id=note_id,
             content_json=content_json,
             fallback_text=content_text,
         )
+        existing.content_json = normalized_content_json
+        self._session.flush()
 
         return NoteRecord(
             note_id=existing.note_id,

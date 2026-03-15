@@ -1,4 +1,9 @@
-from app.db.repositories.block_repository import BlockRepository
+from app.db.repositories.block_repository import (
+    BlockBacklinkRecord,
+    BlockRecord,
+    BlockRepository,
+    BlockSearchRecord,
+)
 from app.db.repositories.entity_alias_repository import (
     AliasCalibrationStats,
     AliasRecord,
@@ -13,7 +18,10 @@ from app.db.repositories.tag_repository import TagRepository
 __all__ = [
     "AliasCalibrationStats",
     "AliasRecord",
+    "BlockBacklinkRecord",
+    "BlockRecord",
     "BlockRepository",
+    "BlockSearchRecord",
     "EntityAliasRepository",
     "EmbeddingNeighbor",
     "GraphRepository",

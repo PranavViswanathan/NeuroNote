@@ -879,7 +879,11 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
                   key={`recent-${note.note_id}`}
                   type="button"
                   className={`notes-chip${note.note_id === selectedNoteId ? " selected" : ""}`}
-                  onClick={() => setSelectedNoteId(note.note_id)}
+                  onClick={() => {
+                    setSelectedNoteId(note.note_id);
+                    setHighlightedNoteId(note.note_id);
+                    closeContextMenu();
+                  }}
                 >
                   {note.note_title}
                 </button>

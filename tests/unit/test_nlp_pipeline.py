@@ -7,6 +7,7 @@ import pytest
 from app.nlp.config import NlpSettings
 from app.nlp.embeddings import build_embedding
 from app.nlp.pipeline import NoteNlpPipeline
+from app.nlp.types import BlockTextInput
 
 
 def test_pipeline_extracts_entities_keyphrases_relations_and_embedding() -> None:
@@ -23,12 +24,19 @@ def test_pipeline_extracts_entities_keyphrases_relations_and_embedding() -> None
         note_id="note-nlp-1",
         content_text="Machine Learning improves Pattern Discovery. Neural Networks support Data Science.",
         content_hash="hash-nlp-1",
+        blocks=[
+            BlockTextInput(block_index=0, content_text="Machine Learning improves Pattern Discovery."),
+            BlockTextInput(block_index=1, content_text="Neural Networks support Data Science."),
+        ],
+        dictionary_terms=["machine learning", "neural networks"],
     )
 
     assert result.note_id == "note-nlp-1"
     assert result.content_hash == "hash-nlp-1"
     assert result.entities
     assert any(entity.text == "Machine Learning" for entity in result.entities)
+    assert result.entity_mentions
+    assert result.entity_mentions[0].block_index == 0
     assert result.keyphrases
     assert any(phrase.text == "machine learning" for phrase in result.keyphrases)
     assert result.relations
@@ -54,6 +62,7 @@ def test_pipeline_respects_minimum_text_length_threshold() -> None:
     )
 
     assert result.entities == []
+    assert result.entity_mentions == []
     assert result.keyphrases == []
     assert result.relations == []
     assert result.embedding is None

@@ -15,6 +15,20 @@ import {
 import { ImageNode } from "../../lib/editor/extensions/image-node";
 import { MathBlock } from "../../lib/editor/extensions/math-block";
 import { MathInline } from "../../lib/editor/extensions/math-inline";
+import { ReferenceLink } from "../../lib/editor/extensions/reference-link";
+import { BlockHierarchy } from "../../lib/editor/extensions/block-hierarchy";
+import {
+  findBlockRefMatch,
+  normalizeBlockRefToken,
+  type BlockRefMatch,
+} from "../../lib/editor/block-refs";
+import {
+  applyIndentAtIndex,
+  applyOutdentAtIndex,
+  computeHierarchyActions,
+  formatHierarchyHint,
+  resolveParentPreviewText,
+} from "../../lib/editor/block-hierarchy";
 import { normalizeMathLatex } from "../../lib/editor/math";
 import { resolveEditorKeydownAction } from "../../lib/editor/key-handlers";
 import { findWikiLinkMatch, normalizeWikiLinkTitle, type WikiLinkMatch } from "../../lib/editor/wiki-links";
@@ -27,6 +41,13 @@ export interface TipTapUpdatePayload {
 export interface WikiLinkSuggestion {
   noteId: string;
   title: string;
+}
+
+export interface BlockRefSuggestion {
+  blockUid: string;
+  noteId: string;
+  noteTitle: string;
+  contentText: string;
 }
 
 export interface UploadedImagePayload {
@@ -43,6 +64,7 @@ interface TipTapEditorProps {
   onUploadImage?: (file: File) => Promise<UploadedImagePayload>;
   onSearchWikiLinks?: (query: string) => Promise<WikiLinkSuggestion[]>;
   onCreateWikiLink?: (title: string) => Promise<WikiLinkSuggestion>;
+  onSearchBlockRefs?: (query: string) => Promise<BlockRefSuggestion[]>;
   onEditorError?: (message: string) => void;
 }
 
@@ -76,6 +98,7 @@ interface KeyboardEventLike {
   key: string;
   metaKey: boolean;
   ctrlKey: boolean;
+  shiftKey: boolean;
   preventDefault: () => void;
 }
 
@@ -87,6 +110,7 @@ export function TipTapEditor({
   onUploadImage,
   onSearchWikiLinks,
   onCreateWikiLink,
+  onSearchBlockRefs,
   onEditorError,
 }: TipTapEditorProps) {
   const serializedValue = JSON.stringify(value);
@@ -100,7 +124,23 @@ export function TipTapEditor({
   const [wikiSuggestions, setWikiSuggestions] = useState<WikiLinkSuggestion[]>([]);
   const [wikiSelectedIndex, setWikiSelectedIndex] = useState(0);
   const [wikiLoading, setWikiLoading] = useState(false);
+  const [blockRefMatch, setBlockRefMatch] = useState<BlockRefMatch | null>(null);
+  const [blockRefSuggestions, setBlockRefSuggestions] = useState<BlockRefSuggestion[]>([]);
+  const [blockRefSelectedIndex, setBlockRefSelectedIndex] = useState(0);
+  const [blockRefLoading, setBlockRefLoading] = useState(false);
+  const [hierarchyHint, setHierarchyHint] = useState<{
+    canIndent: boolean;
+    canOutdent: boolean;
+    parentPreviewText: string | null;
+    hintText: string;
+  }>({
+    canIndent: false,
+    canOutdent: false,
+    parentPreviewText: null,
+    hintText: "No nesting action available for current block",
+  });
   const wikiSearchTokenRef = useRef(0);
+  const blockRefSearchTokenRef = useRef(0);
   const keydownHandlerRef = useRef<(event: KeyboardEventLike) => boolean>(() => false);
   const imageInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -116,6 +156,16 @@ export function TipTapEditor({
         setSlashQuery("");
       }
 
+      if (!onSearchBlockRefs) {
+        setBlockRefMatch(null);
+      } else {
+        const nextBlockRefMatch = findBlockRefMatch(editorTextBeforeCursor, blockStartPos);
+        setBlockRefMatch(nextBlockRefMatch);
+        if (!nextBlockRefMatch) {
+          setBlockRefSuggestions([]);
+        }
+      }
+
       if (!onSearchWikiLinks) {
         setWikiMatch(null);
         return;
@@ -127,17 +177,30 @@ export function TipTapEditor({
         setWikiSuggestions([]);
       }
     },
-    [onSearchWikiLinks],
+    [onSearchBlockRefs, onSearchWikiLinks],
   );
 
   const editor = useEditor({
-    extensions: [StarterKit, MathInline, MathBlock, ImageNode],
+    extensions: [StarterKit, BlockHierarchy, ReferenceLink, MathInline, MathBlock, ImageNode],
     content: value,
     editable: !disabled,
+    immediatelyRender: false,
     onUpdate: ({ editor: tiptapEditor }) => {
       const { $from } = tiptapEditor.state.selection;
       const blockText = $from.parent.textContent.slice(0, $from.parentOffset);
       resolveInlineMenus(blockText, $from.start());
+      const actions = computeHierarchyActions(tiptapEditor.getJSON(), $from.index(0));
+      const parentPreviewText = resolveParentPreviewText(tiptapEditor.getJSON(), $from.index(0));
+      setHierarchyHint({
+        canIndent: actions.canIndent,
+        canOutdent: actions.canOutdent,
+        parentPreviewText,
+        hintText: formatHierarchyHint({
+          canIndent: actions.canIndent,
+          canOutdent: actions.canOutdent,
+          parentPreviewText,
+        }),
+      });
 
       onUpdate({
         json: tiptapEditor.getJSON(),
@@ -151,9 +214,38 @@ export function TipTapEditor({
       const { $from } = tiptapEditor.state.selection;
       const blockText = $from.parent.textContent.slice(0, $from.parentOffset);
       resolveInlineMenus(blockText, $from.start());
+      const actions = computeHierarchyActions(tiptapEditor.getJSON(), $from.index(0));
+      const parentPreviewText = resolveParentPreviewText(tiptapEditor.getJSON(), $from.index(0));
+      setHierarchyHint({
+        canIndent: actions.canIndent,
+        canOutdent: actions.canOutdent,
+        parentPreviewText,
+        hintText: formatHierarchyHint({
+          canIndent: actions.canIndent,
+          canOutdent: actions.canOutdent,
+          parentPreviewText,
+        }),
+      });
     },
     editorProps: {
       handleKeyDown: (_view, event) => keydownHandlerRef.current(event),
+      handleClick: (_view, _pos, event) => {
+        const target = event.target;
+        if (!(target instanceof HTMLElement)) {
+          return false;
+        }
+        const link = target.closest("a[data-reference-link]") as HTMLAnchorElement | null;
+        if (!link) {
+          return false;
+        }
+        const href = link.getAttribute("href");
+        if (!href) {
+          return false;
+        }
+        event.preventDefault();
+        window.location.href = href;
+        return true;
+      },
     },
   });
 
@@ -210,6 +302,36 @@ export function TipTapEditor({
     }
     editor.setEditable(!disabled);
   }, [disabled, editor]);
+
+  useEffect(() => {
+    if (!blockRefMatch || !onSearchBlockRefs) {
+      return;
+    }
+
+    const token = blockRefSearchTokenRef.current + 1;
+    blockRefSearchTokenRef.current = token;
+    setBlockRefLoading(true);
+
+    void onSearchBlockRefs(normalizeBlockRefToken(blockRefMatch.query))
+      .then((results) => {
+        if (blockRefSearchTokenRef.current !== token) {
+          return;
+        }
+        setBlockRefSuggestions(results);
+        setBlockRefSelectedIndex(0);
+      })
+      .catch(() => {
+        if (blockRefSearchTokenRef.current !== token) {
+          return;
+        }
+        setBlockRefSuggestions([]);
+      })
+      .finally(() => {
+        if (blockRefSearchTokenRef.current === token) {
+          setBlockRefLoading(false);
+        }
+      });
+  }, [blockRefMatch, onSearchBlockRefs]);
 
   useEffect(() => {
     if (!wikiMatch || !onSearchWikiLinks) {
@@ -313,6 +435,7 @@ export function TipTapEditor({
       }
       setSlashMatch(null);
       setSlashQuery("");
+      setBlockRefMatch(null);
       setPaletteOpen(false);
       setPaletteQuery("");
     },
@@ -363,6 +486,7 @@ export function TipTapEditor({
       }
 
       let finalTitle = option.title;
+      let finalNoteId = option.kind === "existing" ? option.noteId : null;
       if (option.kind === "create") {
         if (!onCreateWikiLink) {
           return;
@@ -370,6 +494,7 @@ export function TipTapEditor({
         try {
           const created = await onCreateWikiLink(option.title);
           finalTitle = created.title;
+          finalNoteId = created.noteId;
         } catch {
           onEditorError?.("Failed to create linked note");
           return;
@@ -379,7 +504,25 @@ export function TipTapEditor({
       editor
         .chain()
         .focus()
-        .insertContentAt({ from: wikiMatch.from, to: wikiMatch.to }, `[[${finalTitle}]]`)
+        .insertContentAt(
+          { from: wikiMatch.from, to: wikiMatch.to },
+          {
+            type: "text",
+            text: `[[${finalTitle}]]`,
+            marks: finalNoteId
+              ? [
+                  {
+                    type: "referenceLink",
+                    attrs: {
+                      href: `/notes/${finalNoteId}`,
+                      dataRefType: "note",
+                      dataNoteId: finalNoteId,
+                    },
+                  },
+                ]
+              : [],
+          },
+        )
         .run();
 
       setWikiMatch(null);
@@ -389,6 +532,42 @@ export function TipTapEditor({
     [editor, onCreateWikiLink, onEditorError, wikiMatch],
   );
 
+  const applyBlockRef = useCallback(
+    (suggestion: BlockRefSuggestion) => {
+      if (!editor || !blockRefMatch) {
+        return;
+      }
+
+      editor
+        .chain()
+        .focus()
+        .insertContentAt(
+          { from: blockRefMatch.from, to: blockRefMatch.to },
+          {
+            type: "text",
+            text: `↗ ${suggestion.noteTitle}`,
+            marks: [
+              {
+                type: "referenceLink",
+                attrs: {
+                  href: `/notes/${suggestion.noteId}#block=${suggestion.blockUid}`,
+                  dataRefType: "block",
+                  dataNoteId: suggestion.noteId,
+                  dataBlockUid: suggestion.blockUid,
+                },
+              },
+            ],
+          },
+        )
+        .run();
+
+      setBlockRefMatch(null);
+      setBlockRefSuggestions([]);
+      setBlockRefSelectedIndex(0);
+    },
+    [blockRefMatch, editor],
+  );
+
   const handleKeyboardAction = useCallback(
     (event: KeyboardEventLike): boolean => {
       const action = resolveEditorKeydownAction(
@@ -396,12 +575,16 @@ export function TipTapEditor({
           key: event.key,
           metaKey: event.metaKey,
           ctrlKey: event.ctrlKey,
+          shiftKey: event.shiftKey,
         },
         {
           disabled,
           hasSlashMenu: Boolean(slashMatch) && commandItems.length > 0,
           hasPalette: paletteOpen && commandItems.length > 0,
           hasWikiMenu: Boolean(wikiMatch) && wikiOptions.length > 0,
+          hasBlockRefMenu: Boolean(blockRefMatch) && blockRefSuggestions.length > 0,
+          canIndentBlock: (editor?.can().sinkListItem("listItem") ?? false) || hierarchyHint.canIndent,
+          canOutdentBlock: (editor?.can().liftListItem("listItem") ?? false) || hierarchyHint.canOutdent,
         },
       );
 
@@ -423,11 +606,16 @@ export function TipTapEditor({
         setPaletteOpen(false);
         setSlashMatch(null);
         setWikiMatch(null);
+        setBlockRefMatch(null);
         return true;
       }
 
       if (action === "move_next") {
         event.preventDefault();
+        if (blockRefMatch && blockRefSuggestions.length > 0) {
+          setBlockRefSelectedIndex((current) => clampIndex(current + 1, blockRefSuggestions.length));
+          return true;
+        }
         if (wikiMatch && wikiOptions.length > 0) {
           setWikiSelectedIndex((current) => clampIndex(current + 1, wikiOptions.length));
           return true;
@@ -443,8 +631,46 @@ export function TipTapEditor({
         return false;
       }
 
+      if (action === "indent_block") {
+        event.preventDefault();
+        const canSinkList = editor?.can().sinkListItem("listItem") ?? false;
+        if (canSinkList) {
+          editor?.chain().focus().sinkListItem("listItem").run();
+          return true;
+        }
+        if (editor) {
+          const currentIndex = editor.state.selection.$from.index(0);
+          const nextDoc = applyIndentAtIndex(editor.getJSON(), currentIndex);
+          if (nextDoc) {
+            editor.commands.setContent(nextDoc, false);
+          }
+        }
+        return true;
+      }
+
+      if (action === "outdent_block") {
+        event.preventDefault();
+        const canLiftList = editor?.can().liftListItem("listItem") ?? false;
+        if (canLiftList) {
+          editor?.chain().focus().liftListItem("listItem").run();
+          return true;
+        }
+        if (editor) {
+          const currentIndex = editor.state.selection.$from.index(0);
+          const nextDoc = applyOutdentAtIndex(editor.getJSON(), currentIndex);
+          if (nextDoc) {
+            editor.commands.setContent(nextDoc, false);
+          }
+        }
+        return true;
+      }
+
       if (action === "move_prev") {
         event.preventDefault();
+        if (blockRefMatch && blockRefSuggestions.length > 0) {
+          setBlockRefSelectedIndex((current) => clampIndex(current - 1, blockRefSuggestions.length));
+          return true;
+        }
         if (wikiMatch && wikiOptions.length > 0) {
           setWikiSelectedIndex((current) => clampIndex(current - 1, wikiOptions.length));
           return true;
@@ -458,6 +684,15 @@ export function TipTapEditor({
           return true;
         }
         return false;
+      }
+
+      if (action === "block_ref_select") {
+        event.preventDefault();
+        const selected = blockRefSuggestions[blockRefSelectedIndex] ?? blockRefSuggestions[0];
+        if (selected) {
+          applyBlockRef(selected);
+        }
+        return true;
       }
 
       if (action === "wiki_select") {
@@ -491,8 +726,14 @@ export function TipTapEditor({
     },
     [
       applyWikiLink,
+      applyBlockRef,
+      blockRefMatch,
+      blockRefSelectedIndex,
+      blockRefSuggestions,
       commandItems,
       disabled,
+      hierarchyHint.canIndent,
+      hierarchyHint.canOutdent,
       paletteOpen,
       paletteSelectedIndex,
       runCommand,
@@ -552,6 +793,9 @@ export function TipTapEditor({
           void handleImageSelection(event);
         }}
       />
+      <p className="editor-hierarchy-hint" aria-live="polite">
+        {hierarchyHint.hintText}
+      </p>
 
       {slashMatch && commandItems.length > 0 ? (
         <div className="editor-flyout" role="listbox" aria-label="Slash commands">
@@ -570,6 +814,33 @@ export function TipTapEditor({
               {command.label}
             </button>
           ))}
+        </div>
+      ) : null}
+
+      {blockRefMatch ? (
+        <div className="editor-flyout" role="listbox" aria-label="Block references">
+          {blockRefLoading ? <p className="editor-flyout-loading">Searching blocks...</p> : null}
+          {!blockRefLoading && blockRefSuggestions.length === 0 ? (
+            <p className="editor-flyout-loading">No matching blocks</p>
+          ) : null}
+          {!blockRefLoading
+            ? blockRefSuggestions.map((suggestion, index) => (
+                <button
+                  key={`${suggestion.noteId}:${suggestion.blockUid}`}
+                  type="button"
+                  role="option"
+                  aria-selected={index === blockRefSelectedIndex}
+                  className={`editor-flyout-option${index === blockRefSelectedIndex ? " selected" : ""}`}
+                  onMouseDown={(event) => {
+                    event.preventDefault();
+                    applyBlockRef(suggestion);
+                  }}
+                >
+                  <span>{suggestion.noteTitle}</span>
+                  <small>{suggestion.contentText.slice(0, 72)}</small>
+                </button>
+              ))
+            : null}
         </div>
       ) : null}
 

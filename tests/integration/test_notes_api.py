@@ -64,6 +64,49 @@ def test_put_note_succeeds_when_media_schema_unavailable(
     assert response.status_code == 200
 
 
+def test_put_note_succeeds_when_media_reconcile_hits_missing_table_during_delete_mark(
+    client: TestClient,
+    monkeypatch,
+) -> None:
+    from sqlalchemy.exc import ProgrammingError
+
+    from app.db.repositories.note_asset_repository import NoteAssetRecord
+    from app.services import note_asset_service
+
+    class _FailingRepository:
+        def __init__(self, _session) -> None:
+            pass
+
+        def list_active_assets_for_note(self, _note_id: str) -> list[NoteAssetRecord]:
+            return [
+                NoteAssetRecord(
+                    asset_id="asset-1",
+                    note_id="note-delete-mark",
+                    mime_type="image/png",
+                    file_ext="png",
+                    byte_size=10,
+                    relative_path="note-delete-mark/asset-1.png",
+                    deleted_at=None,
+                )
+            ]
+
+        def mark_deleted_many(self, _asset_ids: set[str]) -> int:
+            raise ProgrammingError(
+                "UPDATE note_assets SET deleted_at = now()",
+                {},
+                Exception('relation "note_assets" does not exist'),
+            )
+
+    monkeypatch.setattr(note_asset_service, "note_assets_table_exists", lambda _session: True)
+    monkeypatch.setattr(note_asset_service, "NoteAssetRepository", _FailingRepository)
+
+    response = client.put(
+        "/v1/notes/note-delete-mark",
+        json=_payload("note-delete-mark", "First text", "2026-03-01T12:00:00Z"),
+    )
+    assert response.status_code == 200
+
+
 def test_get_note_returns_saved_payload(client: TestClient) -> None:
     client.put(
         "/v1/notes/note-fetch",

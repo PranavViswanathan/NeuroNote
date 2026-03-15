@@ -6,11 +6,11 @@ import time
 
 from app.nlp.config import NlpSettings, get_nlp_settings
 from app.nlp.embeddings import build_embedding
-from app.nlp.entities import extract_entities
 from app.nlp.keyphrases import extract_keyphrases
 from app.nlp.metrics import StageTiming, format_stage_timings
 from app.nlp.relations import extract_relations
-from app.nlp.types import NoteExtractionResult
+from app.nlp.spotting import extract_entities_with_mentions
+from app.nlp.types import BlockTextInput, NoteExtractionResult
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -54,6 +54,7 @@ class NoteNlpPipeline:
             keyphrases=[],
             relations=[],
             embedding=None,
+            entity_mentions=[],
         )
 
     def get_last_stage_timings(self) -> dict[str, float]:
@@ -65,6 +66,8 @@ class NoteNlpPipeline:
         note_id: str,
         content_text: str,
         content_hash: str,
+        blocks: list[BlockTextInput] | None = None,
+        dictionary_terms: list[str] | None = None,
     ) -> NoteExtractionResult:
         stage_timings: list[StageTiming] = []
         started_at = time.perf_counter()
@@ -83,7 +86,11 @@ class NoteNlpPipeline:
         stage_timings.append(StageTiming(stage="model_handle_ready", duration_ms=0.0))
 
         entities_started = time.perf_counter()
-        entities = extract_entities(content_text)
+        extraction_blocks = list(blocks or [BlockTextInput(block_index=0, content_text=content_text)])
+        entities, entity_mentions = extract_entities_with_mentions(
+            blocks=extraction_blocks,
+            dictionary_terms=dictionary_terms or [],
+        )
         stage_timings.append(
             StageTiming(
                 stage="entities",
@@ -148,4 +155,5 @@ class NoteNlpPipeline:
             keyphrases=keyphrases,
             relations=relations,
             embedding=embedding,
+            entity_mentions=entity_mentions,
         )

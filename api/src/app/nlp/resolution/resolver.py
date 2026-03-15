@@ -6,6 +6,7 @@ from app.nlp.resolution.abbreviation import find_abbreviation_expansion
 from app.nlp.resolution.embedding import find_embedding_candidate
 from app.nlp.resolution.fuzzy import find_fuzzy_candidate
 from app.nlp.resolution.normalization import normalize_entity_text
+from app.nlp.resolution.ranking import RankedResolutionCandidate, rank_resolution_candidates
 from app.nlp.types import ExtractedEntity
 
 
@@ -45,6 +46,7 @@ class EntityResolver:
         abbreviation_index: dict[str, str] | None = None,
         fuzzy_threshold: float = 0.9,
         embedding_threshold: float = 0.85,
+        min_resolution_score: float = 0.72,
     ) -> None:
         self._alias_index = {
             normalize_entity_text(alias_key): alias
@@ -58,6 +60,7 @@ class EntityResolver:
         }
         self._fuzzy_threshold = fuzzy_threshold
         self._embedding_threshold = embedding_threshold
+        self._min_resolution_score = min_resolution_score
 
     def _resolve_alias(self, alias_key: str) -> CanonicalAlias | None:
         return self._alias_index.get(normalize_entity_text(alias_key))
@@ -98,16 +101,19 @@ class EntityResolver:
                 )
                 continue
 
+            candidate_rows: list[RankedResolutionCandidate] = []
+
             direct_alias = self._resolve_alias(normalized_entity_text)
             if direct_alias is not None:
-                self._append_resolved(
-                    resolved=resolved,
-                    entity=entity,
-                    alias=direct_alias,
-                    confidence=1.0,
-                    matched_layer="alias_table",
+                candidate_rows.append(
+                    RankedResolutionCandidate(
+                        canonical_entity_id=direct_alias.canonical_entity_id,
+                        canonical_name=direct_alias.canonical_name,
+                        matched_layer="alias_table",
+                        confidence=1.0,
+                        lexical_specificity=len(direct_alias.canonical_name.split()),
+                    )
                 )
-                continue
 
             abbreviation = find_abbreviation_expansion(
                 entity_text=entity.text,
@@ -116,14 +122,15 @@ class EntityResolver:
             if abbreviation is not None:
                 abbreviation_alias = self._resolve_alias(abbreviation.expansion)
                 if abbreviation_alias is not None:
-                    self._append_resolved(
-                        resolved=resolved,
-                        entity=entity,
-                        alias=abbreviation_alias,
-                        confidence=abbreviation.confidence,
-                        matched_layer="abbreviation",
+                    candidate_rows.append(
+                        RankedResolutionCandidate(
+                            canonical_entity_id=abbreviation_alias.canonical_entity_id,
+                            canonical_name=abbreviation_alias.canonical_name,
+                            matched_layer="abbreviation",
+                            confidence=abbreviation.confidence,
+                            lexical_specificity=len(abbreviation_alias.canonical_name.split()),
+                        )
                     )
-                    continue
 
             fuzzy_match = find_fuzzy_candidate(
                 entity_text=normalized_entity_text,
@@ -133,14 +140,15 @@ class EntityResolver:
             if fuzzy_match is not None:
                 fuzzy_alias = self._resolve_alias(fuzzy_match[0])
                 if fuzzy_alias is not None:
-                    self._append_resolved(
-                        resolved=resolved,
-                        entity=entity,
-                        alias=fuzzy_alias,
-                        confidence=fuzzy_match[1],
-                        matched_layer="fuzzy",
+                    candidate_rows.append(
+                        RankedResolutionCandidate(
+                            canonical_entity_id=fuzzy_alias.canonical_entity_id,
+                            canonical_name=fuzzy_alias.canonical_name,
+                            matched_layer="fuzzy",
+                            confidence=fuzzy_match[1],
+                            lexical_specificity=len(fuzzy_alias.canonical_name.split()),
+                        )
                     )
-                    continue
 
             embedding_match = find_embedding_candidate(
                 entity_text=normalized_entity_text,
@@ -150,12 +158,29 @@ class EntityResolver:
             if embedding_match is not None:
                 embedding_alias = self._resolve_alias(embedding_match[0])
                 if embedding_alias is not None:
+                    candidate_rows.append(
+                        RankedResolutionCandidate(
+                            canonical_entity_id=embedding_alias.canonical_entity_id,
+                            canonical_name=embedding_alias.canonical_name,
+                            matched_layer="embedding",
+                            confidence=embedding_match[1],
+                            lexical_specificity=len(embedding_alias.canonical_name.split()),
+                        )
+                    )
+
+            if candidate_rows:
+                ranked = rank_resolution_candidates(candidate_rows)
+                winner = ranked[0]
+                if winner.confidence >= self._min_resolution_score:
                     self._append_resolved(
                         resolved=resolved,
                         entity=entity,
-                        alias=embedding_alias,
-                        confidence=embedding_match[1],
-                        matched_layer="embedding",
+                        alias=CanonicalAlias(
+                            canonical_entity_id=winner.canonical_entity_id,
+                            canonical_name=winner.canonical_name,
+                        ),
+                        confidence=winner.confidence,
+                        matched_layer=winner.matched_layer,
                     )
                     continue
 

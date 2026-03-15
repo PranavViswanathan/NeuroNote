@@ -95,6 +95,7 @@ def test_resolver_uses_embedding_layer_when_fuzzy_is_strict() -> None:
         },
         fuzzy_threshold=1.01,
         embedding_threshold=0.0,
+        min_resolution_score=0.0,
     )
 
     batch = resolver.resolve(
@@ -130,3 +131,31 @@ def test_resolver_reports_unresolved_entities() -> None:
     assert not batch.resolved
     assert len(batch.unresolved) == 1
     assert batch.unresolved[0].source_entity_id == "entity-unknown"
+
+
+def test_resolver_abstains_when_best_candidate_is_below_threshold() -> None:
+    resolver = EntityResolver(
+        alias_index={
+            "machine learning": CanonicalAlias(
+                canonical_entity_id="concept-machine-learning",
+                canonical_name="Machine Learning",
+            )
+        },
+        fuzzy_threshold=0.5,
+        embedding_threshold=0.5,
+        min_resolution_score=0.99,
+    )
+
+    batch = resolver.resolve(
+        [
+            ExtractedEntity(
+                entity_id="entity-ml-typo",
+                text="Machne Learnng",
+                label="proper_noun",
+                confidence=0.8,
+            )
+        ]
+    )
+
+    assert not batch.resolved
+    assert [item.source_entity_id for item in batch.unresolved] == ["entity-ml-typo"]

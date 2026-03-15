@@ -169,3 +169,97 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
   - compose API checks and full API tests passed (`116 passed, 5 skipped`);
   - compose web typecheck and full web tests passed (`71 passed`);
   - local host `uv run` panic and host `esbuild` mismatch remain known environment constraints; compose remains canonical verification path.
+
+## 2026-03-14 (Deterministic NLP + Linking Hardening)
+- Added deterministic block-level entity spotting module (`app/nlp/spotting.py`) with:
+  - dictionary-first mention capture,
+  - span offsets,
+  - stable mention/entity ordering.
+- Added resolver candidate ranking module (`app/nlp/resolution/ranking.py`) and integrated thresholded abstain behavior (`min_resolution_score`) in `EntityResolver`.
+- Updated note processing and graph sync flow so `Block -> Entity` `MENTIONS` edges are driven by explicit extracted mention evidence, not substring scans.
+- Added dedicated regression suites:
+  - `tests/unit/test_entity_spotting.py`
+  - `tests/unit/test_resolution_ranking.py`
+  - updated NLP/resolver/process/graph unit coverage for mention-aware behavior.
+- Validation/runtime notes:
+  - local `uv run` panic still present in this environment;
+  - verification run executed via `api/.venv/bin/{ruff,mypy,pytest}` with focused suites passing.
+
+## 2026-03-14 (Selective Hierarchy + Block References)
+- Added block-tree persistence and migration:
+  - `blocks` now carries `block_uid`, `parent_block_uid`, `sibling_order`.
+  - migration `20260314_0006_block_tree` backfills missing identifiers and sibling order.
+- Added block APIs for editor/linking flows:
+  - `GET /v1/notes/{note_id}/blocks`
+  - `GET /v1/blocks/search`
+  - `GET /v1/blocks/{block_uid}/backlinks`
+- Added editor-level block reference UX:
+  - typing `((` opens block-reference lookup,
+  - selecting an option inserts canonical `((block_uid))` token.
+- Added selective nesting default behavior:
+  - `Tab` indents only when list nesting is valid,
+  - `Shift+Tab` outdents only when valid,
+  - behavior does not override active slash/wiki/block-ref menus.
+- Added graph sync reference edges:
+  - `GraphSyncService` emits deterministic `REFERS_TO` edges for explicit block references.
+
+## 2026-03-14 (Notion-Parity Nesting + Hyperlink References)
+- Verified Notion keyboard semantics from official Notion help docs:
+  - `Tab` nests current content under the block above,
+  - `Shift+Tab` un-nests by one level.
+- Updated editor hierarchy behavior to match this interaction model for core block types (not list-only).
+- Introduced `referenceLink` mark for clickable note and block references in-editor:
+  - note refs render as clickable `[[Title]]`,
+  - block refs render as readable labels linked to target note/block anchor.
+- Backend block-reference extraction now supports both:
+  - legacy token form `((block_uid))`,
+  - mark-based references (`referenceLink` with `dataBlockUid` / `href` block anchors).
+
+## 2026-03-14 (Hierarchy UX Polish)
+- Added hierarchy hint refinement in editor:
+  - hint now includes explicit action text and parent preview where applicable.
+- Added stronger hierarchy visuals:
+  - indentation rails for nested blocks (`data-indent-level`),
+  - consistent nested spacing.
+- Added stronger reference affordance:
+  - clickable reference links now have hover/focus treatment for clearer interactivity.
+- Added regression coverage for hierarchy hint formatting and parent preview text utility paths.
+
+## 2026-03-14 (E9 Completion Hardening)
+- Added resilient note-save fallback when media reconciliation hits missing `note_assets` errors during delete-mark operations.
+- Added unit and integration regressions to lock missing-table behavior for both reconciliation read and write paths.
+- Synced workspace recent-chip interaction so selected and highlighted note state update together.
+- Validation:
+  - Python `ruff` and `mypy` passed via `api/.venv/bin/*`.
+  - Python tests passed: `137 passed, 5 skipped`.
+  - Web tests passed in compose runtime: `84 passed`.
+
+## 2026-03-14 (Block UID Collision Hardening)
+- Added server-side duplicate `blockUid` normalization during block extraction.
+- Added `parentBlockUid` remapping to canonicalized UIDs when duplicate IDs are encountered.
+- Added deep-copy normalization before extraction so corrected block IDs persist to note JSON payloads.
+- Added regression coverage for duplicate `blockUid` and parent-remap behavior.
+- Validation:
+  - Python tests passed: `138 passed, 5 skipped`.
+  - Python lint passed: `ruff check`.
+
+## 2026-03-14 (Media Schema Repair Migration)
+- Added forward repair migration `20260314_0007_note_assets_repair` to guarantee `public.note_assets` exists when prior migration chains were advanced but media table creation was skipped.
+- Repair migration behavior:
+  - create `public.note_assets` only when missing,
+  - create `ix_note_assets_note_id` only when missing,
+  - keep downgrade as no-op (irreversible repair semantics).
+- Added migration unit tests in `tests/unit/test_note_assets_repair_migration.py`.
+- Applied and verified on live compose DB:
+  - `alembic_version = 20260314_0007`
+  - `to_regclass('public.note_assets') = public.note_assets`
+
+## 2026-03-14 (Media Transaction + SSR Hardening)
+- Fixed media route transaction failure (`A transaction is already begun on this Session.`):
+  - PostgreSQL table probe now uses bind-level execution and no longer starts a session transaction implicitly.
+- Added regression coverage to ensure Postgres table probe path does not call `session.execute`.
+- Fixed TipTap SSR hydration warning by setting `immediatelyRender: false` in editor initialization.
+- Validation:
+  - Python tests passed: `140 passed, 5 skipped`.
+  - Web typecheck passed.
+  - TipTap web tests passed in compose runtime.

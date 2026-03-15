@@ -6,6 +6,7 @@ import pytest
 
 from app.db.engine import get_session_factory
 from app.db.repositories.note_repository import NoteRepository
+from app.nlp.types import BlockTextInput
 from app.nlp.types import ExtractedRelation
 from app.nlp.types import NoteExtractionResult
 from app.services import note_processing_service as note_processing_module
@@ -15,7 +16,7 @@ from shared.contracts.python.v1.process import ProcessNoteRequest
 
 class _FakePipeline:
     def __init__(self) -> None:
-        self.calls: list[tuple[str, str, str]] = []
+        self.calls: list[tuple[str, str, str, list[BlockTextInput], list[str]]] = []
 
     def extract(
         self,
@@ -23,8 +24,18 @@ class _FakePipeline:
         note_id: str,
         content_text: str,
         content_hash: str,
+        blocks: list[BlockTextInput] | None = None,
+        dictionary_terms: list[str] | None = None,
     ) -> NoteExtractionResult:
-        self.calls.append((note_id, content_text, content_hash))
+        self.calls.append(
+            (
+                note_id,
+                content_text,
+                content_hash,
+                list(blocks or []),
+                list(dictionary_terms or []),
+            )
+        )
         return NoteExtractionResult(
             note_id=note_id,
             content_hash=content_hash,
@@ -32,6 +43,7 @@ class _FakePipeline:
             keyphrases=[],
             relations=[],
             embedding=[0.0] * 384,
+            entity_mentions=[],
         )
 
 
@@ -83,7 +95,8 @@ def test_process_note_uses_latest_persisted_note_snapshot(configured_db: None) -
         )
     )
 
-    assert pipeline.calls == [(note_id, combined_text, persisted_hash)]
+    assert pipeline.calls[0][0:3] == (note_id, combined_text, persisted_hash)
+    assert pipeline.calls[0][3] == [BlockTextInput(block_index=0, content_text=persisted_text)]
 
 
 def test_process_note_includes_note_title_in_pipeline_input(configured_db: None) -> None:
@@ -116,7 +129,8 @@ def test_process_note_includes_note_title_in_pipeline_input(configured_db: None)
         )
     )
 
-    assert pipeline.calls == [(note_id, combined_text, persisted_hash)]
+    assert pipeline.calls[0][0:3] == (note_id, combined_text, persisted_hash)
+    assert pipeline.calls[0][3] == [BlockTextInput(block_index=0, content_text=persisted_text)]
 
 
 def test_process_note_does_not_raise_transaction_error_when_postgres_path_is_used(
@@ -188,6 +202,8 @@ def test_process_note_collapses_relation_type_to_related_to(
             note_id: str,
             content_text: str,
             content_hash: str,
+            blocks: list[BlockTextInput] | None = None,
+            dictionary_terms: list[str] | None = None,
         ) -> NoteExtractionResult:
             return NoteExtractionResult(
                 note_id=note_id,
@@ -205,6 +221,7 @@ def test_process_note_collapses_relation_type_to_related_to(
                     )
                 ],
                 embedding=None,
+                entity_mentions=[],
             )
 
     captured_predicates: list[str] = []

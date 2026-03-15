@@ -7,6 +7,7 @@ import { TipTapEditor, type TipTapUpdatePayload } from "./TipTapEditor";
 import {
   exportNoteMarkdown,
   listNotes,
+  searchBlocks,
   fetchProcessingStatus,
   getNote,
   queueNoteProcessing,
@@ -22,7 +23,7 @@ import { extractPlainText } from "../../lib/editor/text-extract";
 import { createNoteLifecycleController } from "../../lib/orchestration/note-lifecycle";
 import { createProcessPollingController } from "../../lib/orchestration/process-polling";
 import type { ProcessStatus, SaveStatus } from "../../lib/state/note-store";
-import type { WikiLinkSuggestion } from "./TipTapEditor";
+import type { BlockRefSuggestion, WikiLinkSuggestion } from "./TipTapEditor";
 
 interface NoteEditorProps {
   noteId: string;
@@ -438,6 +439,19 @@ export function NoteEditor({
     [baseUrl],
   );
 
+  const searchBlockRefTargets = useCallback(
+    async (query: string): Promise<BlockRefSuggestion[]> => {
+      const response = await searchBlocks(baseUrl, query, { limit: 8 });
+      return response.items.map((item) => ({
+        blockUid: item.block_uid,
+        noteId: item.note_id,
+        noteTitle: item.note_title,
+        contentText: item.content_text,
+      }));
+    },
+    [baseUrl],
+  );
+
   const handleUploadImage = useCallback(
     async (file: File) => {
       const uploaded = await uploadNoteImage(baseUrl, noteId, file);
@@ -546,6 +560,7 @@ export function NoteEditor({
         onUploadImage={handleUploadImage}
         onSearchWikiLinks={searchWikiLinks}
         onCreateWikiLink={createWikiLinkNote}
+        onSearchBlockRefs={searchBlockRefTargets}
         onEditorError={(message) => setEditorError(message)}
       />
       {editorError ? <p className="note-editor-inline-error">{editorError}</p> : null}

@@ -36,9 +36,16 @@ def note_assets_table_exists(session: Session) -> bool:
     try:
         if bind.dialect.name == "postgresql":
             # Use an explicit schema-qualified probe to avoid search_path ambiguity.
-            regclass = session.execute(
-                text("SELECT to_regclass('public.note_assets')"),
-            ).scalar_one_or_none()
+            statement = text("SELECT to_regclass('public.note_assets')")
+            connect = getattr(bind, "connect", None)
+            execute = getattr(bind, "execute", None)
+            if callable(connect):
+                with connect() as connection:
+                    regclass = connection.execute(statement).scalar_one_or_none()
+            elif callable(execute):
+                regclass = execute(statement).scalar_one_or_none()
+            else:
+                regclass = None
             return bool(regclass)
         return bool(inspect(bind).has_table("note_assets"))
     except SQLAlchemyError:
@@ -95,7 +102,12 @@ def reconcile_note_assets_for_note(
         return []
 
     to_delete = [asset for asset in active_assets if asset.asset_id in to_delete_ids]
-    repository.mark_deleted_many(to_delete_ids)
+    try:
+        repository.mark_deleted_many(to_delete_ids)
+    except ProgrammingError as exc:
+        if _is_missing_note_assets_error(exc):
+            return []
+        raise
 
     storage = get_media_storage()
     for asset in to_delete:
