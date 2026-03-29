@@ -4,7 +4,7 @@ NeuroNote is a monorepo with a web frontend, a Python API service, shared contra
 
 ## Services
 - `web/`: Next.js frontend with workspace sidebar (create/open/right-click actions), pinned/all note sections, organization controls, editor autosave orchestration, and API clients.
-- `api/`: FastAPI service for health, note persistence/listing, organization-aware note queries, deterministic note-processing endpoints (block-level entity mentions + canonical resolution), note/block backlink retrieval, block hierarchy APIs, media asset upload/retrieval/deletion, and markdown export.
+- `api/`: FastAPI service for health, note persistence/listing, organization-aware note queries, deterministic note-processing endpoints (block-level entity mentions + canonical resolution), local graph neighborhood API, note/block backlink retrieval, block hierarchy APIs, media asset upload/retrieval/deletion, and markdown export.
 - `shared/`: versioned request/response contracts shared across services.
 - `infra/`: local infrastructure orchestration.
 - `tests/`: repository-level structure and integration tests.
@@ -14,6 +14,7 @@ NeuroNote is a monorepo with a web frontend, a Python API service, shared contra
 - `docs/plan.md`: executable implementation plan and architecture decisions.
 - `docs/initial_scoping_doc.md`: original scoping and requirements baseline.
 - `docs/decisions.md`: non-plan implementation notes and operational decisions.
+- `docs/release_checklist.md`: mandatory end-of-epic release gate checklist.
 
 ## Recommended Workflow (Docker Compose + uv)
 This is the default way to run NeuroNote now. API commands still use `uv`, but inside Docker containers.
@@ -35,6 +36,8 @@ This is the default way to run NeuroNote now. API commands still use `uv`, but i
 7. Stop stack:
    - `make compose-down`
 
+Before declaring an epic complete, run the full gate sequence in `docs/release_checklist.md`.
+
 Schema ownership is migration-first:
 - `DB_AUTO_CREATE=false` in compose API runtime.
 - PostgreSQL auto-create is disabled in app startup logic.
@@ -43,6 +46,7 @@ Schema ownership is migration-first:
 - Migration `20260312_0004` is idempotent for workspace-organization schema (`notes` flags + `note_tags`).
 - Migration `20260313_0005` is idempotent for media schema (`note_assets`).
 - Migration `20260314_0006` backfills tree block fields (`block_uid`, `parent_block_uid`, `sibling_order`) and constraints.
+- Migration `20260314_0007` repairs missing `public.note_assets` schema drift in already-stamped environments.
 
 ### Common Commands
 - API checks: `make compose-check`
@@ -122,6 +126,33 @@ JSON
 ```
 3. Check calibration metrics:
    - `curl http://127.0.0.1:8000/v1/entity-aliases/calibration`
+
+## Configure Hybrid Entity Extraction (Epic E11 S11.2)
+The NLP extractor now supports profile-based mention detection:
+- `rule-only` (default): dictionary + deterministic regex fallback.
+- `hybrid-spacy`: dictionary + spaCy NER + deterministic regex fallback.
+
+Compose API env vars (already wired in `infra/docker-compose.yml`):
+- `NLP_EXTRACTION_PROFILE` (`rule-only` or `hybrid-spacy`)
+- `NLP_MODEL_NAME` (for spaCy profile, use `spacy:en_core_web_sm` or another installed model)
+- `NLP_ENABLE_REGEX_FALLBACK` (`true`/`false`)
+- `NLP_ENTITY_SEED_TERMS` (comma-separated seeded terms used for deterministic matching)
+
+Example startup with hybrid profile:
+```bash
+NLP_EXTRACTION_PROFILE=hybrid-spacy \
+NLP_MODEL_NAME=spacy:en_core_web_sm \
+NLP_ENTITY_SEED_TERMS="machine learning,entity resolution,graph reasoning,knowledge graph,neural networks" \
+make compose-up
+```
+
+Runtime requirement:
+- `hybrid-spacy` only activates the spaCy stage when spaCy + the configured model are installed in the API runtime.
+- If unavailable, extraction gracefully falls back to deterministic layers (dictionary + regex) without failing requests.
+
+Alias seeding guidance:
+- For high-recall domain terms, seed aliases via `POST /v1/entity-aliases/confirm`.
+- Those aliases feed dictionary-first extraction and improve recall deterministically across notes.
 
 ## Validate Deterministic Mention Evidence Flow
 1. Save a note with multiple blocks where only one block contains a target entity.
@@ -237,6 +268,34 @@ curl -sS http://127.0.0.1:8000/v1/blocks/<block_uid>/backlinks
 ```
 Expected:
 - `items` include source note/block and snippet where the token was used.
+
+## Validate Local Graph (Epic E11 S11.1)
+1. Ensure root + linked notes exist:
+```bash
+curl -sS -X PUT http://127.0.0.1:8000/v1/notes/graph-root \
+  -H 'Content-Type: application/json' \
+  --data-binary @- <<'JSON'
+{"note_id":"graph-root","note_title":"Graph Root","subject_id":"inbox","tags":[],"is_pinned":false,"is_archived":false,"content_json":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Machine Learning links to [[Graph Neighbor]]"}]}]},"content_text":"Machine Learning links to [[Graph Neighbor]]","updated_at":"2026-03-15T12:00:00Z"}
+JSON
+
+curl -sS -X PUT http://127.0.0.1:8000/v1/notes/graph-neighbor \
+  -H 'Content-Type: application/json' \
+  --data-binary @- <<'JSON'
+{"note_id":"graph-neighbor","note_title":"Graph Neighbor","subject_id":"inbox","tags":[],"is_pinned":false,"is_archived":false,"content_json":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"Neighbor body"}]}]},"content_text":"Neighbor body","updated_at":"2026-03-15T12:01:00Z"}
+JSON
+```
+2. Query local graph API:
+```bash
+curl -sS "http://127.0.0.1:8000/v1/graph/local/graph-root?max_hops=1&limit_nodes=80&min_confidence=0.35&include_types=note,entity,relation"
+```
+Expected:
+- response has `nodes`, `edges`, and `meta`.
+- `meta.root_note_id` is `graph-root`.
+- `meta.applied_filters` mirrors query filters.
+3. UI validation:
+- open the note in workspace and confirm local graph panel renders above the editor.
+- adjust depth/confidence/type filters and confirm graph updates.
+- click a note node in the graph and confirm workspace selection switches to that note.
 
 ## Validate Math, Image, and Export Flow (Epic E8)
 1. Save/update a note:

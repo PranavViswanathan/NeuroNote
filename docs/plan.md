@@ -25,8 +25,8 @@ Each story follows the working rule from `docs/codex.md`:
 - Background jobs: FastAPI BackgroundTasks first, Huey later
 - Product differentiation: passive, explainable semantic connections
 
-## Progress Snapshot (2026-03-14)
-- Overall status: `Epic E0 complete`; `Epic E1 complete`; `Epic E2 complete`; `Epic E3 complete`; `Epic E4 complete`; `Epic E5 complete`; `Epic E6 complete`; `Epic E7 complete`; `Epic E8 complete`; `Epic E9 complete`; `Epic E10 complete`; `legacy Epics E6-E9 deprecated`; `commercial-track Epics E11-E12 planned`.
+## Progress Snapshot (2026-03-17)
+- Overall status: `Epic E0 complete`; `Epic E1 complete`; `Epic E2 complete`; `Epic E3 complete`; `Epic E4 complete`; `Epic E5 complete`; `Epic E6 complete`; `Epic E7 complete`; `Epic E8 complete`; `Epic E9 complete`; `Epic E10 complete`; `Epic E11 in progress (S11.1 complete; S11.2 complete; S11.3 pending)`; `legacy Epics E6-E9 deprecated`; `commercial-track Epics E11-E12 active`.
 - Completed stories: `S0.1 Repository and service skeleton`, `S0.2 Quality bar and test harnesses`.
 - Completed stories: `S1.1 TipTap editor baseline`, `S1.2 Debounced autosave and processing triggers`.
 - Completed stories: `S2.1 Core relational schema for notes and blocks`, `S2.2 Graph and vector extension activation`.
@@ -37,6 +37,7 @@ Each story follows the working rule from `docs/codex.md`:
 - Completed stories: `S7.1 Common block and formatting feature set`, `S7.2 Slash commands and wiki-links`.
 - Completed stories: `S8.1 Math authoring and rendering`, `S8.2 Image upload and markdown export`.
 - Completed stories: `S10.1 Quick switcher and unified command surface`, `S10.2 Backlinks and linked mentions`, `S10.3 Selective block hierarchy and manual block references`.
+- Completed stories: `S11.1 Local graph in note context`, `S11.2 Entity extraction and linking robustness for graph recall`.
 - Validation evidence:
   - `make setup` completed with `uv` and created `api/.venv`.
   - `make check` passed (`ruff`, `mypy`).
@@ -138,6 +139,26 @@ Each story follows the working rule from `docs/codex.md`:
   - Made PostgreSQL `note_assets` existence probe transaction-neutral to avoid implicit session autobegin before media route transaction blocks.
   - Added TipTap `immediatelyRender: false` to eliminate SSR hydration mismatch warnings in Next.js runtime.
   - Validation results: Python suite `140 passed, 5 skipped`; web typecheck passed; targeted TipTap web tests passed in compose.
+- E11 local graph pass completed (2026-03-15):
+  - Added local graph API (`GET /v1/graph/local/{note_id}`) with deterministic filtering (`max_hops`, `limit_nodes`, `min_confidence`, `include_types`) and bounded payload semantics.
+  - Added local graph service with note-neighborhood traversal (wiki-link outgoing + inbound backlinks), entity extraction, deterministic sort order, and truncation flagging.
+  - Added interactive local graph panel in workspace with sigma+graphology canvas, keyboard-accessible filters, and note-node navigation.
+  - Validation results: API `ruff` and `mypy` passed; Python suite `147 passed, 5 skipped`; web typecheck passed; web suite `87 passed`.
+- E11 entity-recall hardening pass completed (2026-03-17):
+  - Added explicit extractor strategy interface and layered extraction path (dictionary + optional spaCy + regex fallback) with deterministic span merge behavior.
+  - Added optional EntityRuler bootstrapping from alias/dictionary/seed terms plus profile-gated extraction controls (`rule-only`, `hybrid-spacy`).
+  - Added per-layer extraction hit counters (`dictionary_hits`, `spacy_hits`, `regex_hits`, `merged_mentions`) surfaced on the NLP pipeline for observability.
+  - Added regression coverage for lowercase multi-block mentions, overlap dedup stability, profile/env parsing, and local-graph lowercase entity payloads.
+  - Validation results: Python suite `152 passed, 5 skipped`; web suite `87 passed`; web typecheck passed; API `ruff` and `mypy` passed.
+- E11 lowercase recall follow-up completed (2026-03-18):
+  - Replaced non-overlapping lowercase regex matching with deterministic sliding n-gram extraction for rule-only mode.
+  - Lowercase phrase filtering now rejects verb/noise windows while allowing generic multi-word entity phrases.
+  - Validation results: Python suite `153 passed, 5 skipped`; targeted graph/NLP suites passed.
+- E11 validation baseline refreshed (2026-03-29):
+  - Revalidated compose-first runtime flow: `compose-up`, `compose-migrate`, `compose-bootstrap-extensions`, `compose-check`, `compose-test`, `compose-test-db`, and web test/typecheck/lint gates.
+  - Fixed hybrid extraction merge regression where repeated lowercase token fallback emitted contained subspans (`graph`, `reasoning`) alongside higher-quality phrase spans (`graph reasoning`).
+  - Tightened lowercase phrase filtering to reject `explore`/`explores` action windows that were suppressing valid repeated-token entity mentions such as `eren`.
+  - Validation results: Python suite `156 passed, 5 skipped`; DB suite `5 passed`; web suite `87 passed`; live API smoke verified `/health`, note save, processing completion, and `GET /v1/graph/local/{note_id}`.
 - Roadmap rebaseline completed (2026-03-12):
   - Legacy unfinished `E6-E9` are deprecated for planning purposes.
   - New commercial-track roadmap is now defined as `E6 Workspace`, `E7 Editor Commands`, `E8 Math/Images/Export`, `E9 UX Hardening`, `E10 Hybrid Workflows`, `E11 Guided Graph`, and `E12 Launch Hardening`.
@@ -255,6 +276,12 @@ Each story follows the working rule from `docs/codex.md`:
 - 2026-03-14: PostgreSQL media schema probes must not start ORM transactions.
   - Rationale: preflight checks that autobegin sessions can cause nested transaction failures in write routes.
   - Impacted areas: `api/src/app/services/note_asset_service.py`, `tests/unit/test_note_asset_service.py`, `api/src/app/routes/media.py`.
+- 2026-03-15: Local graph retrieval is deterministic and bounded by explicit filter controls.
+  - Rationale: graph UX must stay explainable and performant under multi-note growth while remaining keyboard-operable.
+  - Impacted areas: `api/src/app/routes/graph.py`, `api/src/app/services/local_graph_service.py`, `web/src/components/graph/LocalGraphPanel.tsx`, `web/src/components/workspace/NotesWorkspace.tsx`.
+- 2026-03-17: Entity extraction for graph-facing workflows uses a deterministic-plus-statistical hybrid pipeline.
+  - Rationale: dictionary-only and case-sensitive fallback spotting causes low recall on lowercase informal notes, which suppresses graph nodes/edges despite valid note content.
+  - Impacted areas: `api/src/app/nlp/extractors.py`, `api/src/app/nlp/pipeline.py`, `api/src/app/nlp/spotting.py`, `api/src/app/nlp/config.py`, `api/src/app/services/local_graph_service.py`, `tests/unit/test_entity_spotting.py`, `tests/unit/test_nlp_pipeline.py`, `tests/unit/test_nlp_config.py`, `tests/unit/test_local_graph_service.py`.
 
 ## Epic E0: Project Foundations and Delivery Guardrails [Completed 2026-03-01]
 Context: The scoping doc assumes a multi-service system. Without shared conventions, implementation speed will collapse under integration drift. This epic creates the base structure, contract boundaries, and CI quality gates so all later epics are reliable.
@@ -704,44 +731,64 @@ Subtask ST10.3.3.a: Implement recursive block extraction and adjacency-list pers
 Subtask ST10.3.3.b: Implement selective nesting UX (`Tab` indent / `Shift+Tab` outdent only for valid list contexts).
 Subtask ST10.3.3.c: Implement inline block-reference autocomplete/insertion and graph `REFERS_TO` synchronization.
 
-## Epic E11: Guided Graph Experience (Local First + Global On Demand)
+## Epic E11: Guided Graph Experience (Local First + Global On Demand) [In Progress]
 Context: Graph differentiation remains important, but with strict scope and performance boundaries.
 
-### Story S11.1: Local graph in note context
+### Story S11.1: Local graph in note context [Completed 2026-03-15]
 Context: Local graph must be default, fast, and explainable.
 
-#### Task T11.1.1: Build local graph structure
+#### Task T11.1.1: Build local graph structure [Completed]
 Subtask ST11.1.1.a: Add local graph panel route/shell.
 Subtask ST11.1.1.b: Add local neighborhood API endpoint.
 Subtask ST11.1.1.c: Add confidence/type/depth filters.
 
-#### Task T11.1.2: Write local graph tests
+#### Task T11.1.2: Write local graph tests [Completed]
 Subtask ST11.1.2.a: Test empty/non-empty rendering.
 Subtask ST11.1.2.b: Test node selection behavior.
 Subtask ST11.1.2.c: Test deterministic filter updates.
 
-#### Task T11.1.3: Implement local graph logic
+#### Task T11.1.3: Implement local graph logic [Completed]
 Subtask ST11.1.3.a: Add frontend graph adapter wiring.
 Subtask ST11.1.3.b: Add local payload limits.
 Subtask ST11.1.3.c: Add loading/error UX states.
 
-### Story S11.2: Guided global graph
+### Story S11.2: Entity extraction and linking robustness for graph recall [Completed 2026-03-17]
+Context: Graph quality is bounded by mention recall. Lowercase informal notes must still produce deterministic entity/link output.
+
+#### Task T11.2.1: Build hybrid extraction structure [Completed]
+Subtask ST11.2.1.a: Add explicit extractor strategy interface (dictionary, spaCy NER, regex fallback).
+Subtask ST11.2.1.b: Add `EntityRuler` bootstrapping from alias table and seeded domain terms.
+Subtask ST11.2.1.c: Add config gating for model/profile (`rule-only`, `hybrid-spacy`, fallback behavior).
+
+#### Task T11.2.2: Write robustness tests first [Completed]
+Subtask ST11.2.2.a: Test lowercase proper nouns in multi-block notes produce deterministic mentions.
+Subtask ST11.2.2.b: Test alias+model overlap dedup keeps stable IDs and spans.
+Subtask ST11.2.2.c: Test NIL/abstain behavior preserves precision for unresolved mentions.
+Subtask ST11.2.2.d: Test local-graph payload contains entity and mention edges for previously failing lowercase note fixtures.
+
+#### Task T11.2.3: Implement hybrid extraction logic [Completed]
+Subtask ST11.2.3.a: Integrate spaCy NER stage into extraction with deterministic merge ordering.
+Subtask ST11.2.3.b: Keep resolver ranking stack unchanged; feed higher-recall mention candidates.
+Subtask ST11.2.3.c: Add observability counters for per-layer hit rates (dictionary vs spacy vs fallback).
+Subtask ST11.2.3.d: Update runbooks for alias seeding and model download/runtime requirements.
+
+### Story S11.3: Guided global graph
 Context: Global graph should be explicit-action only with strict query bounds.
 
-#### Task T11.2.1: Build guided global graph structure
-Subtask ST11.2.1.a: Add explicit global graph action.
-Subtask ST11.2.1.b: Add server-side limits/guards.
-Subtask ST11.2.1.c: Add snapshot/layout caching.
+#### Task T11.3.1: Build guided global graph structure
+Subtask ST11.3.1.a: Add explicit global graph action.
+Subtask ST11.3.1.b: Add server-side limits/guards.
+Subtask ST11.3.1.c: Add snapshot/layout caching.
 
-#### Task T11.2.2: Write guided global tests
-Subtask ST11.2.2.a: Test global graph is not loaded by default.
-Subtask ST11.2.2.b: Test filters and limits are enforced.
-Subtask ST11.2.2.c: Test cache hit/miss and invalidation behavior.
+#### Task T11.3.2: Write guided global tests
+Subtask ST11.3.2.a: Test global graph is not loaded by default.
+Subtask ST11.3.2.b: Test filters and limits are enforced.
+Subtask ST11.3.2.c: Test cache hit/miss and invalidation behavior.
 
-#### Task T11.2.3: Implement guided global logic
-Subtask ST11.2.3.a: Add global graph API query path.
-Subtask ST11.2.3.b: Add cache invalidation on note reprocessing.
-Subtask ST11.2.3.c: Add safe uncached fallback behavior.
+#### Task T11.3.3: Implement guided global logic
+Subtask ST11.3.3.a: Add global graph API query path.
+Subtask ST11.3.3.b: Add cache invalidation on note reprocessing.
+Subtask ST11.3.3.c: Add safe uncached fallback behavior.
 
 ## Epic E12: Commercial Boundaries and Launch Hardening (Single-User Runtime)
 Context: Collaboration is deferred, but launch needs clean SaaS-ready boundaries and operational hardening.

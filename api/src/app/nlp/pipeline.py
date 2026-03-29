@@ -9,7 +9,7 @@ from app.nlp.embeddings import build_embedding
 from app.nlp.keyphrases import extract_keyphrases
 from app.nlp.metrics import StageTiming, format_stage_timings
 from app.nlp.relations import extract_relations
-from app.nlp.spotting import extract_entities_with_mentions
+from app.nlp.spotting import extract_entities_with_mentions_and_metrics
 from app.nlp.types import BlockTextInput, NoteExtractionResult
 
 _LOGGER = logging.getLogger(__name__)
@@ -22,6 +22,7 @@ class NoteNlpPipeline:
     def __init__(self, settings: NlpSettings | None = None) -> None:
         self._settings = settings or get_nlp_settings()
         self._last_stage_timings: dict[str, float] = {}
+        self._last_extraction_hit_counts: dict[str, int] = {}
 
     def _get_model_handle(self, model_name: str) -> object | None:
         with self._MODEL_CACHE_LOCK:
@@ -30,6 +31,7 @@ class NoteNlpPipeline:
 
             if model_name.startswith("spacy:"):
                 model_id = model_name.split(":", maxsplit=1)[1]
+                handle: object | None
                 try:
                     import spacy  # type: ignore[import-not-found]
 
@@ -47,6 +49,7 @@ class NoteNlpPipeline:
         return (time.perf_counter() - started_at) * 1000.0 > float(self._settings.timeout_ms)
 
     def _empty_result(self, *, note_id: str, content_hash: str) -> NoteExtractionResult:
+        self._last_extraction_hit_counts = {}
         return NoteExtractionResult(
             note_id=note_id,
             content_hash=content_hash,
@@ -59,6 +62,9 @@ class NoteNlpPipeline:
 
     def get_last_stage_timings(self) -> dict[str, float]:
         return dict(self._last_stage_timings)
+
+    def get_last_extraction_hit_counts(self) -> dict[str, int]:
+        return dict(self._last_extraction_hit_counts)
 
     def extract(
         self,
@@ -82,15 +88,27 @@ class NoteNlpPipeline:
             self._last_stage_timings = format_stage_timings(stage_timings)
             return self._empty_result(note_id=note_id, content_hash=content_hash)
 
-        _ = self._get_model_handle(self._settings.model_name)
+        model_handle = None
+        if self._settings.extraction_profile == "hybrid-spacy":
+            model_handle = self._get_model_handle(self._settings.model_name)
         stage_timings.append(StageTiming(stage="model_handle_ready", duration_ms=0.0))
 
         entities_started = time.perf_counter()
         extraction_blocks = list(blocks or [BlockTextInput(block_index=0, content_text=content_text)])
-        entities, entity_mentions = extract_entities_with_mentions(
+        entities, entity_mentions, extraction_metrics = extract_entities_with_mentions_and_metrics(
             blocks=extraction_blocks,
             dictionary_terms=dictionary_terms or [],
+            extraction_profile=self._settings.extraction_profile,
+            model_handle=model_handle,
+            seed_terms=list(self._settings.entity_seed_terms),
+            enable_regex_fallback=self._settings.enable_regex_fallback,
         )
+        self._last_extraction_hit_counts = {
+            "dictionary_hits": extraction_metrics.dictionary_hits,
+            "spacy_hits": extraction_metrics.spacy_hits,
+            "regex_hits": extraction_metrics.regex_hits,
+            "merged_mentions": extraction_metrics.merged_mentions,
+        }
         stage_timings.append(
             StageTiming(
                 stage="entities",

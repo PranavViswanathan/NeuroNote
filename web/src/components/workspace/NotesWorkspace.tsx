@@ -4,10 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 
 import { NoteEditor } from "../editor/NoteEditor";
+import { LocalGraphPanel } from "../graph/LocalGraphPanel";
 import { BacklinksModal } from "./BacklinksModal";
 import {
   ApiClientError,
   deleteNote,
+  fetchLocalGraph,
   fetchNoteBacklinks,
   getNote,
   listNotes,
@@ -21,11 +23,25 @@ import {
 } from "../../lib/workspace/quick-switch";
 import type { NoteSummary } from "../../../../shared/contracts/ts/v1/note";
 import type { BacklinkItem } from "../../../../shared/contracts/ts/v1/backlink";
+import type { LocalGraphResponse } from "../../../../shared/contracts/ts/v1/graph";
 
 const SELECTED_NOTE_STORAGE_KEY = "neuronote.workspace.selected";
 const RECENT_NOTES_STORAGE_KEY = "neuronote.workspace.recent";
 const MAX_RECENT_NOTES = 5;
 const FILTER_DEBOUNCE_MS = 250;
+interface LocalGraphFilterState {
+  max_hops: number;
+  limit_nodes: number;
+  min_confidence: number;
+  include_types: string[];
+}
+
+const DEFAULT_LOCAL_GRAPH_FILTERS: LocalGraphFilterState = {
+  max_hops: 1,
+  limit_nodes: 80,
+  min_confidence: 0.35,
+  include_types: ["note", "entity", "relation"],
+};
 
 interface NotesWorkspaceProps {
   baseUrl: string;
@@ -150,11 +166,19 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
   const [backlinkItems, setBacklinkItems] = useState<BacklinkItem[]>([]);
   const [backlinksLoading, setBacklinksLoading] = useState(false);
   const [backlinksErrorMessage, setBacklinksErrorMessage] = useState<string | null>(null);
+  const [localGraph, setLocalGraph] = useState<LocalGraphResponse | null>(null);
+  const [localGraphLoading, setLocalGraphLoading] = useState(false);
+  const [localGraphErrorMessage, setLocalGraphErrorMessage] = useState<string | null>(null);
+  const [localGraphFilters, setLocalGraphFilters] = useState<LocalGraphFilterState>({
+    ...DEFAULT_LOCAL_GRAPH_FILTERS,
+    include_types: [...DEFAULT_LOCAL_GRAPH_FILTERS.include_types],
+  });
   const createInFlightRef = useRef(false);
   const contextMenuRef = useRef<HTMLUListElement | null>(null);
   const quickSwitchInputRef = useRef<HTMLInputElement | null>(null);
   const backlinksTriggerRef = useRef<HTMLButtonElement | null>(null);
   const backlinkRequestTokenRef = useRef(0);
+  const localGraphRequestTokenRef = useRef(0);
   const filtersInitializedRef = useRef(false);
 
   const filters: WorkspaceFilters = useMemo(
@@ -186,6 +210,33 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
       backlinksTriggerRef.current?.focus();
     }, 0);
   }, []);
+
+  const loadLocalGraph = useCallback(
+    async (noteId: string) => {
+      const token = localGraphRequestTokenRef.current + 1;
+      localGraphRequestTokenRef.current = token;
+      setLocalGraphLoading(true);
+      setLocalGraphErrorMessage(null);
+      try {
+        const response = await fetchLocalGraph(baseUrl, noteId, localGraphFilters);
+        if (localGraphRequestTokenRef.current !== token) {
+          return;
+        }
+        setLocalGraph(response);
+      } catch {
+        if (localGraphRequestTokenRef.current !== token) {
+          return;
+        }
+        setLocalGraph(null);
+        setLocalGraphErrorMessage("Failed to load local graph");
+      } finally {
+        if (localGraphRequestTokenRef.current === token) {
+          setLocalGraphLoading(false);
+        }
+      }
+    },
+    [baseUrl, localGraphFilters],
+  );
 
   const loadBacklinks = useCallback(
     async (noteId: string) => {
@@ -303,6 +354,16 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
       return next.slice(0, MAX_RECENT_NOTES);
     });
   }, [selectedNoteId]);
+
+  useEffect(() => {
+    if (!selectedNoteId) {
+      setLocalGraph(null);
+      setLocalGraphLoading(false);
+      setLocalGraphErrorMessage(null);
+      return;
+    }
+    void loadLocalGraph(selectedNoteId);
+  }, [loadLocalGraph, selectedNoteId]);
 
   useEffect(() => {
     if (selectedNoteId && notes.some((note) => note.note_id === selectedNoteId)) {
@@ -955,6 +1016,28 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
             Linked mentions
           </button>
         </div>
+        {selectedNoteId ? (
+          <LocalGraphPanel
+            noteId={selectedNoteId}
+            graph={localGraph}
+            filters={localGraphFilters}
+            isLoading={localGraphLoading}
+            errorMessage={localGraphErrorMessage}
+            onRetry={() => {
+              void loadLocalGraph(selectedNoteId);
+            }}
+            onFiltersChange={(next) => {
+              setLocalGraphFilters(next);
+            }}
+            onOpenNote={(nextNoteId) => {
+              if (!notes.some((item) => item.note_id === nextNoteId)) {
+                return;
+              }
+              setSelectedNoteId(nextNoteId);
+              setHighlightedNoteId(nextNoteId);
+            }}
+          />
+        ) : null}
         {selectedNoteId ? (
           <NoteEditor
             key={selectedNoteId}

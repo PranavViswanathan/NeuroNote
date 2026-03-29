@@ -15,3 +15,4 @@
 13. For frontend behavior changes, write/adjust tests first for all user-visible scenarios, then implement.
 14. Every destructive action must have both mouse and keyboard access parity.
 15. Use a consistent visual system (tokens/variables, spacing scale, typography scale); avoid ad-hoc styling..
+16. Epic completion requires passing every gate in `docs/release_checklist.md` (no skipped gates).

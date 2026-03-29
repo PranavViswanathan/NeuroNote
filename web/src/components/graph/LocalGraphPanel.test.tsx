@@ -1,0 +1,108 @@
+import React from "react";
+import { fireEvent, render, screen } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
+
+import { LocalGraphPanel } from "./LocalGraphPanel";
+
+describe("LocalGraphPanel", () => {
+  it("renders loading state", () => {
+    render(
+      <LocalGraphPanel
+        noteId="note-1"
+        graph={null}
+        filters={{
+          max_hops: 1,
+          limit_nodes: 80,
+          min_confidence: 0.35,
+          include_types: ["note", "entity", "relation"],
+        }}
+        isLoading
+        errorMessage={null}
+        onRetry={() => {}}
+        onFiltersChange={() => {}}
+        onOpenNote={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("Loading local graph...")).toBeInTheDocument();
+  });
+
+  it("renders error state and retries", () => {
+    const onRetry = vi.fn();
+    render(
+      <LocalGraphPanel
+        noteId="note-1"
+        graph={null}
+        filters={{
+          max_hops: 1,
+          limit_nodes: 80,
+          min_confidence: 0.35,
+          include_types: ["note", "entity", "relation"],
+        }}
+        isLoading={false}
+        errorMessage="Failed to load local graph"
+        onRetry={onRetry}
+        onFiltersChange={() => {}}
+        onOpenNote={() => {}}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders graph summary counts", () => {
+    render(
+      <LocalGraphPanel
+        noteId="note-1"
+        graph={{
+          nodes: [
+            {
+              id: "note-1",
+              type: "note",
+              label: "Note 1",
+              confidence: null,
+              source_note_id: "note-1",
+              metadata: {},
+            },
+          ],
+          edges: [
+            {
+              id: "edge-1",
+              source: "note-1",
+              target: "note-2",
+              type: "LINKS_TO",
+              confidence: 1,
+              source_note_id: "note-1",
+            },
+          ],
+          meta: {
+            root_note_id: "note-1",
+            applied_filters: {
+              max_hops: 1,
+              limit_nodes: 80,
+              min_confidence: 0,
+              include_types: ["note", "entity", "relation"],
+            },
+            truncated: false,
+          },
+        }}
+        filters={{
+          max_hops: 1,
+          limit_nodes: 80,
+          min_confidence: 0.35,
+          include_types: ["note", "entity", "relation"],
+        }}
+        isLoading={false}
+        errorMessage={null}
+        onRetry={() => {}}
+        onFiltersChange={() => {}}
+        onOpenNote={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("1 nodes")).toBeInTheDocument();
+    expect(screen.getByText("1 edges")).toBeInTheDocument();
+    expect(screen.getByLabelText("Local graph canvas")).toBeInTheDocument();
+  });
+});

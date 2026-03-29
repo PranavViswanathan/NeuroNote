@@ -1,0 +1,40 @@
+from __future__ import annotations
+
+from pydantic import BaseModel, Field
+
+
+class LocalGraphFilters(BaseModel):
+    max_hops: int = Field(ge=1, le=2)
+    limit_nodes: int = Field(ge=1, le=150)
+    min_confidence: float = Field(ge=0.0, le=1.0)
+    include_types: list[str] = Field(default_factory=list)
+
+
+class LocalGraphNode(BaseModel):
+    id: str = Field(min_length=1)
+    type: str = Field(min_length=1)
+    label: str = Field(min_length=1)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    source_note_id: str | None = None
+    metadata: dict[str, object] = Field(default_factory=dict)
+
+
+class LocalGraphEdge(BaseModel):
+    id: str = Field(min_length=1)
+    source: str = Field(min_length=1)
+    target: str = Field(min_length=1)
+    type: str = Field(min_length=1)
+    confidence: float | None = Field(default=None, ge=0.0, le=1.0)
+    source_note_id: str | None = None
+
+
+class LocalGraphMeta(BaseModel):
+    root_note_id: str = Field(min_length=1)
+    applied_filters: LocalGraphFilters
+    truncated: bool = False
+
+
+class LocalGraphResponse(BaseModel):
+    nodes: list[LocalGraphNode]
+    edges: list[LocalGraphEdge]
+    meta: LocalGraphMeta

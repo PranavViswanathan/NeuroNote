@@ -6,6 +6,7 @@ import { NotesWorkspace } from "./NotesWorkspace";
 import {
   ApiClientError,
   deleteNote,
+  fetchLocalGraph,
   fetchNoteBacklinks,
   getNote,
   listNotes,
@@ -26,6 +27,7 @@ vi.mock("../../lib/api-client", () => ({
   deleteNote: vi.fn(),
   getNote: vi.fn(),
   fetchNoteBacklinks: vi.fn(),
+  fetchLocalGraph: vi.fn(),
 }));
 
 vi.mock("../editor/NoteEditor", () => ({
@@ -64,6 +66,20 @@ describe("NotesWorkspace", () => {
   beforeEach(() => {
     vi.resetAllMocks();
     window.localStorage.clear();
+    vi.mocked(fetchLocalGraph).mockResolvedValue({
+      nodes: [],
+      edges: [],
+      meta: {
+        root_note_id: "note-a",
+        applied_filters: {
+          max_hops: 1,
+          limit_nodes: 80,
+          min_confidence: 0.35,
+          include_types: ["note", "entity", "relation"],
+        },
+        truncated: false,
+      },
+    });
   });
 
   it("loads note list and opens the first note", async () => {
@@ -76,6 +92,14 @@ describe("NotesWorkspace", () => {
 
     await waitFor(() => {
       expect(screen.getByTestId("active-note-id")).toHaveTextContent("note-a");
+    });
+    await waitFor(() => {
+      expect(fetchLocalGraph).toHaveBeenCalledWith("http://localhost:8000", "note-a", {
+        max_hops: 1,
+        limit_nodes: 80,
+        min_confidence: 0.35,
+        include_types: ["note", "entity", "relation"],
+      });
     });
   });
 

@@ -1,0 +1,38 @@
+from __future__ import annotations
+
+from fastapi import APIRouter, Depends, HTTPException, Query, status
+from sqlalchemy.orm import Session
+
+from app.db.session import get_db_session
+from app.services.local_graph_service import LocalGraphNoteNotFoundError
+from app.services.local_graph_service import LocalGraphQuery, LocalGraphService
+from shared.contracts.python.v1.graph import LocalGraphResponse
+
+router = APIRouter()
+
+
+@router.get("/graph/local/{note_id}", response_model=LocalGraphResponse)
+def get_local_graph(
+    note_id: str,
+    max_hops: int = Query(default=1, ge=1, le=2),
+    limit_nodes: int = Query(default=80, ge=1, le=150),
+    min_confidence: float = Query(default=0.35, ge=0.0, le=1.0),
+    include_types: str = Query(default="note,entity,relation"),
+    session: Session = Depends(get_db_session),
+) -> LocalGraphResponse:
+    include_type_values = [item.strip() for item in include_types.split(",") if item.strip()]
+    try:
+        return LocalGraphService(session).get_local_graph(
+            LocalGraphQuery(
+                note_id=note_id,
+                max_hops=max_hops,
+                limit_nodes=limit_nodes,
+                min_confidence=min_confidence,
+                include_types=include_type_values,
+            )
+        )
+    except LocalGraphNoteNotFoundError as exc:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=str(exc),
+        ) from exc

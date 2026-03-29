@@ -4,6 +4,42 @@ This file captures implementation notes and additions that are useful context bu
 
 Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisions`.
 
+## 2026-03-29 (Validated Baseline Refresh)
+- Re-ran the compose-first release gates against the current E11 graph/NLP baseline:
+  - `compose-up`
+  - `compose-migrate`
+  - `compose-bootstrap-extensions`
+  - `compose-check`
+  - `compose-test`
+  - `compose-test-db`
+  - web `lint`, `typecheck`, and `test`
+- Validation outcomes:
+  - Python suites: `156 passed, 5 skipped`
+  - DB extension/vector suite: `5 passed`
+  - Web suite: `87 passed`
+  - Live API smoke succeeded for `/health`, note save, processing completion, and local graph payload generation.
+- Fixed one real regression discovered during the baseline pass:
+  - Hybrid spotting merge logic was allowing lower-quality contained spans from repeated lowercase token fallback to survive alongside better phrase spans.
+  - Example bad behavior: `graph reasoning` could yield extra mention spans for `graph` and `reasoning`.
+  - Fix: accept longer spans first and discard contained spans after a better span is accepted.
+- Fixed one follow-on lowercase recall issue:
+  - `eren explores ...` was incorrectly treated as a lowercase entity phrase, which suppressed the intended repeated single-token entity recall for `eren`.
+  - Fix: expanded lowercase action-token filtering to reject `explore` / `explores` phrase windows.
+- Environment note:
+  - Host-side `curl http://127.0.0.1:8000/...` from the Codex sandbox was unreliable during this validation pass even while compose services were healthy.
+  - The live smoke gate was therefore verified from inside the running `api` container via loopback (`127.0.0.1:8000`), which exercised the same long-running FastAPI process successfully.
+
+## 2026-03-17 (Release Gate Standardization)
+- Added `docs/release_checklist.md` as the canonical epic completion checklist.
+- Gate policy is now explicit and strict:
+  - compose-first commands,
+  - sequential gates (no skipping/reordering after failure),
+  - mandatory UI/manual verification for every epic,
+  - blocked release on any failed gate.
+- Added documentation pointers so the checklist is part of normal workflow:
+  - `README.md` (`Project Docs` and workflow note),
+  - `docs/codex.md` (epic completion rule).
+
 ## 2026-03-07
 - Documentation policy alignment:
   - `docs/decisions.md` stores non-plan additions and operational notes.
@@ -263,3 +299,77 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
   - Python tests passed: `140 passed, 5 skipped`.
   - Web typecheck passed.
   - TipTap web tests passed in compose runtime.
+
+## 2026-03-15 (Epic E11 S11.1 Local Graph Delivery)
+- Added local graph contracts (Python + TypeScript) and API route `GET /v1/graph/local/{note_id}`.
+- Added `LocalGraphService` with deterministic neighborhood traversal:
+  - outbound wiki links and inbound backlinks,
+  - optional entity extraction,
+  - filter-driven include types,
+  - hard node-limit truncation with deterministic ordering.
+- Added workspace local graph panel with:
+  - interactive sigma+graphology canvas,
+  - keyboard/mouse filter controls,
+  - note-node click navigation back into workspace selection.
+- Added regression coverage:
+  - API integration tests for neighborhood payload, truncation, and `404`,
+  - service unit tests for second-hop traversal and type filtering,
+  - UI tests for panel loading/error/render states.
+- Validation:
+  - API checks passed (`ruff`, `mypy` via `api/.venv/bin/*`),
+  - Python tests passed: `147 passed, 5 skipped`,
+  - Web typecheck passed,
+  - Web tests passed: `87 passed`.
+
+## 2026-03-17 (NLP Recall Gap and Hybrid Extraction Plan)
+- Debug outcome:
+  - Confirmed a production gap where lowercase informal notes can yield zero extracted entities, resulting in local graph payloads with only a note node and no mention edges.
+  - Root cause: current spotting path is dictionary + title-case + acronym fallback; resolver/linker cannot recover entities that are never extracted.
+- Decision:
+  - Adopt a hybrid mention detection strategy for graph-facing extraction:
+    - deterministic dictionary/EntityRuler first,
+    - spaCy NER pass second,
+    - deterministic regex fallback third,
+    - stable dedup/ordering and existing resolver ranking unchanged.
+  - Keep deterministic abstain (`NIL`) behavior to protect precision and avoid over-linking.
+- Rationale:
+  - Improves recall for real note-writing style (mixed casing, shorthand, informal prose) without replacing the current deterministic resolver architecture.
+  - Preserves explainability by recording layer provenance and confidence.
+- High-trust references consulted:
+  - spaCy model and pipeline guidance: https://spacy.io/models/
+  - spaCy EntityRuler API (deterministic matching): https://spacy.io/api/entityruler
+  - spaCy EntityLinker/KB APIs (candidate-linking architecture): https://spacy.io/api/entitylinker and https://spacy.io/api/kb/
+  - BLINK (bi-encoder + cross-encoder EL baseline): https://aclanthology.org/2020.emnlp-main.519/
+  - REL (practical neural EL framework): https://github.com/informagi/REL
+  - GLiNER (lightweight modern NER baseline): https://aclanthology.org/2024.naacl-long.300/
+
+## 2026-03-17 (Epic E11 S11.2 Delivery: Hybrid Extraction + Recall Hardening)
+- Implemented extraction structure and profile controls:
+  - Added extractor strategy boundary (`dictionary`, `spacy`, `regex`) in `api/src/app/nlp/extractors.py`.
+  - Added NLP config gates in `api/src/app/nlp/config.py`:
+    - `NLP_EXTRACTION_PROFILE` (`rule-only` | `hybrid-spacy`)
+    - `NLP_ENABLE_REGEX_FALLBACK`
+    - `NLP_ENTITY_SEED_TERMS` (comma-separated seeded dictionary terms)
+- Implemented deterministic hybrid extraction flow:
+  - `api/src/app/nlp/spotting.py` now performs deterministic merge ordering and span-level dedup across extractor layers.
+  - Added optional EntityRuler pattern bootstrapping for spaCy handles using alias/dictionary/seed terms.
+- Added observability counters:
+  - `NoteNlpPipeline` now records `dictionary_hits`, `spacy_hits`, `regex_hits`, and `merged_mentions`.
+  - Counters are retrievable via `get_last_extraction_hit_counts()`.
+- Added robustness regression coverage:
+  - `tests/unit/test_entity_spotting.py`: lowercase multi-block recall + overlap dedup stability.
+  - `tests/unit/test_nlp_pipeline.py`: per-layer extraction counters.
+  - `tests/unit/test_nlp_config.py`: profile/seed env parsing.
+  - `tests/unit/test_local_graph_service.py`: lowercase fixture yields entity + `MENTIONS` edges in local graph payload.
+- Validation:
+  - Python tests: `152 passed, 5 skipped`.
+  - Web checks/tests: typecheck passed, `87` tests passed.
+  - API static checks: `ruff` and `mypy` passed.
+
+## 2026-03-18 (Lowercase Recall Follow-up)
+- Expanded rule-only lowercase spotting fallback from non-overlapping regex matches to deterministic sliding n-gram extraction.
+- Lowercase phrase filter now rejects stopword/verb windows but allows generic multi-word entity phrases without domain-token hard-coding.
+- This improves recall for notes like `bayesian inference` / `variational methods` while keeping obvious action/noise phrases out.
+- Validation:
+  - Targeted spotting/NLP/local-graph suites passed.
+  - Full Python suite passed: `153 passed, 5 skipped`.

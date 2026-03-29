@@ -25,6 +25,8 @@ Audience: Codex only
 - Keep Alembic migration-first ownership for Postgres; do not reintroduce runtime schema auto-create behavior.
 - Use explicit transaction boundaries for multi-step DB workflows.
 - Base dedupe/coalescing identity on persisted server state, not client assumptions.
+- For NLP regressions, debug in this order: note/blocks rows -> extraction output -> resolver output -> graph payload; do not assume renderer bugs first.
+- Do not claim "spaCy pipeline" if mention spotting is still regex/dictionary-only; keep docs and runtime behavior aligned.
 
 ## Operational Discipline
 - If a command is error-prone when typed manually, provide a copy-safe one-liner or Make target.
@@ -37,3 +39,8 @@ Audience: Codex only
 - No orphaned/unused code introduced by the change.
 - Docs for run/test/validation paths are current.
 - Manual validation steps are deterministic and shell-safe.
+
+## Additional Reminder
+- For layered extraction systems, always test both directions after merge-logic changes:
+  - phrase spans should suppress contained token spans,
+  - contained token fallback must still survive when no valid phrase span exists.
