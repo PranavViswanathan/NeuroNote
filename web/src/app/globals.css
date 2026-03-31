@@ -1168,3 +1168,52 @@ body {
   color: var(--text-strong);
   font-size: 0.95rem;
 }
+
+/* Status Badge Styles */
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border-radius: 12px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  transition: all 150ms ease;
+}
+
+.status-icon {
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.status-label {
+  line-height: 1;
+}
+
+.status-saving,
+.status-queued,
+.status-running {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.status-saved,
+.status-completed {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.status-error {
+  background: #fee2e2;
+  color: #991b1b;
+}
+
+.status-running .status-icon {
+  animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

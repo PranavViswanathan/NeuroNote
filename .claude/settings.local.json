@@ -16,7 +16,8 @@
       "WebFetch(domain:builtformars.com)",
       "WebFetch(domain:www.eleken.co)",
       "Bash(npm run typecheck:*)",
-      "Bash(git add:*)"
+      "Bash(git add:*)",
+      "Bash(git commit -m \"$(cat <<''EOF''\nPhase 1 task 3: Fix developer-facing UI strings (status badges)\n\nReplace raw developer strings with user-friendly status indicators:\n\nBefore:\n- \"dirty\" / \"clean\" - now hidden (internal state)\n- \"idle\" / \"saving\" / \"saved\" / \"error\" - raw strings\n- \"queued\" / \"running\" / \"completed\" / \"failed\" - raw strings\n\nAfter:\n- \"Saving\" ⏳ with yellow background\n- \"Saved\" ✓ with green background  \n- \"Save failed\" ⚠ with red background\n- \"Processing\" ⚙ with yellow background (animated spinner)\n- \"Processing complete\" ✓ with green background\n- \"Processing failed\" ⚠ with red background\n\nTechnical changes:\n- Created StatusBadge component with SaveStatusBadge and ProcessStatusBadge\n- Removed dirty state from UI (internal state, not user-facing)\n- Added status badge CSS with color-coded backgrounds\n- Spinning animation for \"running\" state\n- Maintains data-testid attributes for testing\n\n🤖 Generated with [Claude Code](https://claude.com/claude-code)\n\nCo-Authored-By: Claude <noreply@anthropic.com>\nEOF\n)\")"
     ],
     "deny": [],
     "ask": []

@@ -1,4 +1,5 @@
 import type { ProcessStatus, SaveStatus } from "../../lib/state/note-store";
+import { SaveStatusBadge, ProcessStatusBadge } from "./StatusBadge";
 
 interface EditorToolbarProps {
   dirty: boolean;
@@ -9,9 +10,12 @@ interface EditorToolbarProps {
 export function EditorToolbar({ dirty, saveStatus, processStatus }: EditorToolbarProps) {
   return (
     <div className="editor-toolbar" data-testid="editor-toolbar">
-      <span className="editor-toolbar-pill" data-testid="dirty-flag">{dirty ? "dirty" : "clean"}</span>
-      <span className="editor-toolbar-pill" data-testid="save-status">{saveStatus}</span>
-      <span className="editor-toolbar-pill" data-testid="process-status">{processStatus}</span>
+      <div data-testid="save-status">
+        <SaveStatusBadge status={saveStatus} />
+      </div>
+      <div data-testid="process-status">
+        <ProcessStatusBadge status={processStatus} />
+      </div>
     </div>
   );
 }
