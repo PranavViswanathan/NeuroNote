@@ -2,6 +2,7 @@
 
 import type { BacklinkItem } from "../../../../shared/contracts/ts/v1/backlink";
 import { ErrorMessage } from "../ui/ErrorMessage";
+import { Button } from "../ui/Button";
 
 interface BacklinksModalProps {
   isOpen: boolean;
@@ -39,9 +40,9 @@ export function BacklinksModal({
       >
         <header className="backlinks-modal-header">
           <h2>Linked mentions for {noteTitle}</h2>
-          <button type="button" className="backlinks-close-button" onClick={onClose}>
+          <Button variant="ghost" size="sm" onClick={onClose}>
             Close
-          </button>
+          </Button>
         </header>
         {isLoading ? <p>Loading linked mentions...</p> : null}
         {errorMessage ? (

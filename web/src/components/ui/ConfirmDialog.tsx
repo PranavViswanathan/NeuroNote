@@ -1,4 +1,5 @@
 import { Modal } from "./Modal";
+import { Button } from "./Button";
 
 interface ConfirmDialogProps {
   isOpen: boolean;
@@ -30,10 +31,10 @@ export function ConfirmDialog({
     <Modal isOpen={isOpen} onClose={onClose} title={title}>
       <p className="confirm-message">{message}</p>
       <div className="modal-actions">
-        <button onClick={onClose}>{cancelLabel}</button>
-        <button onClick={handleConfirm} className={`primary ${variant}`}>
+        <Button variant="secondary" onClick={onClose}>{cancelLabel}</Button>
+        <Button variant={variant === "danger" ? "danger" : "primary"} onClick={handleConfirm}>
           {confirmLabel}
-        </button>
+        </Button>
       </div>
     </Modal>
   );

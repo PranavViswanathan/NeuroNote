@@ -1,5 +1,6 @@
 import { useState, useEffect, FormEvent } from "react";
 import { Modal } from "./Modal";
+import { Button } from "./Button";
 
 interface InputModalProps {
   isOpen: boolean;
@@ -51,12 +52,12 @@ export function InputModal({
           required={required}
         />
         <div className="modal-actions">
-          <button type="button" onClick={onClose}>
+          <Button variant="secondary" onClick={onClose}>
             Cancel
-          </button>
-          <button type="submit" className="primary">
+          </Button>
+          <Button variant="primary" type="submit">
             OK
-          </button>
+          </Button>
         </div>
       </form>
     </Modal>
