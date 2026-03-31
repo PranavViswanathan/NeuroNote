@@ -5,6 +5,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { EditorToolbar } from "./EditorToolbar";
 import { TipTapEditor, type TipTapUpdatePayload } from "./TipTapEditor";
 import { SkeletonEditor } from "../ui/Skeleton";
+import { ErrorMessage } from "../ui/ErrorMessage";
 import {
   exportNoteMarkdown,
   listNotes,
@@ -568,7 +569,7 @@ export function NoteEditor({
         onSearchBlockRefs={searchBlockRefTargets}
         onEditorError={(message) => setEditorError(message)}
       />
-      {editorError ? <p className="note-editor-inline-error">{editorError}</p> : null}
+      {editorError ? <ErrorMessage message={editorError} compact /> : null}
     </section>
   );
 }

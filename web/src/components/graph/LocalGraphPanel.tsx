@@ -6,6 +6,7 @@ import { toLocalGraphViewModel } from "../../lib/graph/adapter";
 import type { LocalGraphResponse } from "../../../../shared/contracts/ts/v1/graph";
 import { SkeletonGraph } from "../ui/Skeleton";
 import { EmptyState } from "../ui/EmptyState";
+import { ErrorMessage } from "../ui/ErrorMessage";
 
 interface LocalGraphPanelProps {
   noteId: string;
@@ -187,10 +188,11 @@ export function LocalGraphPanel({
 
   if (errorMessage) {
     return (
-      <div className="local-graph-error-panel">
-        <p className="local-graph-error">{errorMessage}</p>
-        <button type="button" onClick={onRetry}>Retry</button>
-      </div>
+      <ErrorMessage
+        message={errorMessage}
+        actionLabel="Retry"
+        onAction={onRetry}
+      />
     );
   }
 
@@ -334,7 +336,7 @@ export function LocalGraphPanel({
           })}
         </svg>
       )}
-      {rendererError ? <p className="local-graph-renderer-error">{rendererError}</p> : null}
+      {rendererError ? <ErrorMessage message={rendererError} compact /> : null}
 
       <ul className="local-graph-node-list" role="listbox" aria-label="Local graph nodes">
         {viewModel.nodes.map((node) => (

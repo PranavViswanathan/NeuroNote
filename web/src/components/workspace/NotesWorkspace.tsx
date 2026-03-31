@@ -10,6 +10,7 @@ import { InputModal } from "../ui/InputModal";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { SkeletonNoteList } from "../ui/Skeleton";
 import { EmptyState } from "../ui/EmptyState";
+import { ErrorMessage } from "../ui/ErrorMessage";
 import {
   ApiClientError,
   deleteNote,
@@ -1029,12 +1030,11 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
           />
         ) : null}
         {errorMessage ? (
-          <div className="notes-error-panel">
-            <p className="notes-error">{errorMessage}</p>
-            <button type="button" className="notes-retry-button" onClick={() => void refreshNotes(selectedNoteId)}>
-              Retry
-            </button>
-          </div>
+          <ErrorMessage
+            message={errorMessage}
+            actionLabel="Retry"
+            onAction={() => void refreshNotes(selectedNoteId)}
+          />
         ) : null}
       </aside>
 

@@ -1,6 +1,7 @@
 "use client";
 
 import type { BacklinkItem } from "../../../../shared/contracts/ts/v1/backlink";
+import { ErrorMessage } from "../ui/ErrorMessage";
 
 interface BacklinksModalProps {
   isOpen: boolean;
@@ -44,12 +45,11 @@ export function BacklinksModal({
         </header>
         {isLoading ? <p>Loading linked mentions...</p> : null}
         {errorMessage ? (
-          <div>
-            <p>{errorMessage}</p>
-            <button type="button" className="backlinks-close-button" onClick={onRetry}>
-              Retry linked mentions
-            </button>
-          </div>
+          <ErrorMessage
+            message={errorMessage}
+            actionLabel="Retry"
+            onAction={onRetry}
+          />
         ) : null}
         {!isLoading && !errorMessage && items.length === 0 ? <p>No linked mentions yet.</p> : null}
         {!isLoading && !errorMessage && items.length > 0 ? (
