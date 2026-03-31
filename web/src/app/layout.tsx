@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import type { ReactNode } from "react";
 import "katex/dist/katex.min.css";
 import "./globals.css";
+import { ToastProvider } from "../lib/toast";
+import { ToastContainer } from "../components/ui/ToastContainer";
 
 export const metadata: Metadata = {
   title: {
@@ -56,7 +58,12 @@ interface RootLayoutProps {
 export default function RootLayout({ children }: RootLayoutProps) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body>
+        <ToastProvider>
+          {children}
+          <ToastContainer />
+        </ToastProvider>
+      </body>
     </html>
   );
 }
