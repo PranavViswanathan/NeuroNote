@@ -1217,3 +1217,128 @@ body {
     transform: rotate(360deg);
   }
 }
+
+/* Error Page Styles */
+.error-page {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 24px;
+  background: var(--workspace-bg);
+}
+
+.error-container {
+  max-width: 500px;
+  text-align: center;
+  background: var(--panel-bg);
+  padding: 48px 32px;
+  border-radius: 12px;
+  box-shadow: var(--shadow-panel);
+}
+
+.error-container h1 {
+  font-size: 2rem;
+  margin-bottom: 16px;
+  color: var(--text-strong);
+}
+
+.error-message {
+  color: var(--text-muted);
+  margin-bottom: 24px;
+  line-height: 1.6;
+}
+
+.error-digest {
+  font-size: 0.85rem;
+  color: var(--text-muted);
+  font-family: monospace;
+  margin-bottom: 24px;
+  padding: 8px 12px;
+  background: var(--workspace-surface);
+  border-radius: 6px;
+}
+
+.error-actions {
+  display: flex;
+  gap: 12px;
+  justify-content: center;
+}
+
+.error-actions button {
+  padding: 10px 20px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  font-family: inherit;
+  font-weight: 500;
+  transition: all 150ms ease;
+  border: 1px solid var(--panel-border);
+  background: var(--workspace-surface);
+  color: var(--text-strong);
+}
+
+.error-actions button:hover {
+  background: var(--panel-border);
+}
+
+.error-actions button.primary {
+  background: var(--accent);
+  color: white;
+  border: none;
+}
+
+.error-actions button.primary:hover {
+  background: var(--accent-strong);
+}
+
+/* Error Boundary Styles */
+.error-boundary {
+  padding: 24px;
+  border: 2px solid var(--danger);
+  border-radius: 8px;
+  margin: 16px;
+  background: var(--panel-bg);
+}
+
+.error-boundary h2 {
+  color: var(--danger);
+  margin-bottom: 16px;
+}
+
+.error-boundary details {
+  margin-bottom: 16px;
+  text-align: left;
+}
+
+.error-boundary summary {
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+}
+
+.error-boundary pre {
+  margin-top: 8px;
+  padding: 12px;
+  background: var(--workspace-surface);
+  border-radius: 6px;
+  overflow-x: auto;
+  font-size: 0.85rem;
+  color: var(--danger);
+}
+
+.error-boundary button {
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: 0.9rem;
+  cursor: pointer;
+  font-family: inherit;
+  background: var(--accent);
+  color: white;
+  border: none;
+  transition: all 150ms ease;
+}
+
+.error-boundary button:hover {
+  background: var(--accent-strong);
+}
