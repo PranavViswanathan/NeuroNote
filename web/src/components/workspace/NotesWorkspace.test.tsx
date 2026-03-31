@@ -245,7 +245,6 @@ describe("NotesWorkspace", () => {
   });
 
   it("renames a note from context menu action", async () => {
-    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("Renamed from menu");
     vi.mocked(listNotes)
       .mockResolvedValueOnce({
         items: [noteSummary("note-a", { note_title: "Context A" })],
@@ -283,6 +282,11 @@ describe("NotesWorkspace", () => {
     fireEvent.contextMenu(noteButton);
     fireEvent.click(await screen.findByRole("menuitem", { name: "Rename note" }));
 
+    const renameDialog = await screen.findByRole("dialog", { name: "Rename Note" });
+    const renameInput = within(renameDialog).getByRole("textbox");
+    fireEvent.change(renameInput, { target: { value: "Renamed from menu" } });
+    fireEvent.click(within(renameDialog).getByRole("button", { name: "OK" }));
+
     await waitFor(() => {
       expect(saveNote).toHaveBeenCalled();
     });
@@ -290,12 +294,9 @@ describe("NotesWorkspace", () => {
       note_id: "note-a",
       note_title: "Renamed from menu",
     });
-    expect(promptSpy).toHaveBeenCalled();
-    promptSpy.mockRestore();
   });
 
   it("shows conflict message when rename collides with an existing title", async () => {
-    const promptSpy = vi.spyOn(window, "prompt").mockReturnValue("Duplicate Guard");
     vi.mocked(listNotes).mockResolvedValue({
       items: [noteSummary("note-a", { note_title: "Context A" })],
       total: 1,
@@ -323,10 +324,14 @@ describe("NotesWorkspace", () => {
     fireEvent.contextMenu(within(allSection).getByRole("button", { name: /Context A/ }));
     fireEvent.click(await screen.findByRole("menuitem", { name: "Rename note" }));
 
+    const renameDialog = await screen.findByRole("dialog", { name: "Rename Note" });
+    const renameInput = within(renameDialog).getByRole("textbox");
+    fireEvent.change(renameInput, { target: { value: "Duplicate Guard" } });
+    fireEvent.click(within(renameDialog).getByRole("button", { name: "OK" }));
+
     await waitFor(() => {
       expect(screen.getByText("A note with this title already exists")).toBeInTheDocument();
     });
-    promptSpy.mockRestore();
   });
 
   it("deletes selected note from context menu action", async () => {
@@ -350,6 +355,9 @@ describe("NotesWorkspace", () => {
     const noteButton = within(allSection).getByRole("button", { name: /Title note-a/ });
     fireEvent.contextMenu(noteButton);
     fireEvent.click(await screen.findByRole("menuitem", { name: "Delete note" }));
+
+    const deleteDialog = await screen.findByRole("dialog", { name: "Delete Note" });
+    fireEvent.click(within(deleteDialog).getByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
       expect(deleteNote).toHaveBeenCalledWith("http://localhost:8000", "note-a");
@@ -428,7 +436,8 @@ describe("NotesWorkspace", () => {
     );
 
     render(<NotesWorkspace baseUrl="http://localhost:8000" />);
-    expect(await screen.findByText("Loading notes...")).toBeInTheDocument();
+    expect(await screen.findByText("New note")).toBeInTheDocument();
+    expect(document.querySelector(".skeleton-note-list")).toBeInTheDocument();
   });
 
   it("shows retry action after load failure and retries successfully", async () => {
@@ -522,6 +531,9 @@ describe("NotesWorkspace", () => {
     const noteButton = within(allSection).getByRole("button", { name: /Delete Candidate/ });
     fireEvent.contextMenu(noteButton);
     fireEvent.click(await screen.findByRole("menuitem", { name: "Delete note" }));
+
+    const deleteDialog = await screen.findByRole("dialog", { name: "Delete Note" });
+    fireEvent.click(within(deleteDialog).getByRole("button", { name: "Delete" }));
 
     await waitFor(() => {
       expect(within(allSection).queryByRole("button", { name: /Delete Candidate/ })).not.toBeInTheDocument();
@@ -766,7 +778,7 @@ describe("NotesWorkspace", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Linked mentions" }));
     expect(await screen.findByText("Failed to load linked mentions")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Retry linked mentions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
 
     await waitFor(() => {
       expect(fetchNoteBacklinks).toHaveBeenCalledTimes(2);

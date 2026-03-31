@@ -24,7 +24,7 @@ describe("LocalGraphPanel", () => {
       />,
     );
 
-    expect(screen.getByText("Loading local graph...")).toBeInTheDocument();
+    expect(document.querySelector(".skeleton-graph")).toBeInTheDocument();
   });
 
   it("renders error state and retries", () => {

@@ -146,11 +146,9 @@ describe("NoteEditor", () => {
     const input = screen.getByLabelText("TipTap editor");
     fireEvent.change(input, { target: { value: "Updated content" } });
 
-    expect(screen.getByTestId("dirty-flag")).toHaveTextContent("dirty");
-
     await waitFor(() => expect(saveNote).toHaveBeenCalledTimes(1));
     await waitFor(() =>
-      expect(screen.getByTestId("save-status")).toHaveTextContent("saved"),
+      expect(screen.getByTestId("save-status")).toHaveTextContent("Saved"),
     );
     await waitFor(() => expect(queueNoteProcessing).toHaveBeenCalledTimes(1));
   });
@@ -194,7 +192,6 @@ describe("NoteEditor", () => {
     fireEvent.change(screen.getByLabelText("Note title"), {
       target: { value: "Updated title" },
     });
-    expect(screen.getByTestId("dirty-flag")).toHaveTextContent("dirty");
 
     await waitFor(() => expect(saveNote).toHaveBeenCalledTimes(1));
     expect(vi.mocked(saveNote).mock.calls[0]?.[1]).toMatchObject({
@@ -237,7 +234,7 @@ describe("NoteEditor", () => {
     fireEvent.change(input, { target: { value: "Trigger error" } });
 
     await waitFor(() =>
-      expect(screen.getByTestId("save-status")).toHaveTextContent("error"),
+      expect(screen.getByTestId("save-status")).toHaveTextContent("Save failed"),
     );
   });
 
