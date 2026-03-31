@@ -9,6 +9,7 @@ import { BacklinksModal } from "./BacklinksModal";
 import { InputModal } from "../ui/InputModal";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { SkeletonNoteList } from "../ui/Skeleton";
+import { EmptyState } from "../ui/EmptyState";
 import {
   ApiClientError,
   deleteNote,
@@ -1012,11 +1013,21 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
               </li>
             ))}
           </ul>
-          {!isLoading && unpinnedNotes.length === 0 ? <p className="notes-empty">No unpinned notes.</p> : null}
+          {!isLoading && unpinnedNotes.length === 0 && notes.length > 0 ? (
+            <p className="notes-empty-minor">All notes are pinned.</p>
+          ) : null}
         </section>
 
         {isLoading ? <SkeletonNoteList count={8} /> : null}
-        {!isLoading && notes.length === 0 ? <p className="notes-empty">No notes yet. Create your first note.</p> : null}
+        {!isLoading && notes.length === 0 ? (
+          <EmptyState
+            icon="📝"
+            title="No notes yet"
+            description="Create your first note to get started building your knowledge graph."
+            actionLabel="Create note"
+            onAction={() => void handleCreateNote()}
+          />
+        ) : null}
         {errorMessage ? (
           <div className="notes-error-panel">
             <p className="notes-error">{errorMessage}</p>

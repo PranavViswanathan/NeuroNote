@@ -5,6 +5,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { toLocalGraphViewModel } from "../../lib/graph/adapter";
 import type { LocalGraphResponse } from "../../../../shared/contracts/ts/v1/graph";
 import { SkeletonGraph } from "../ui/Skeleton";
+import { EmptyState } from "../ui/EmptyState";
 
 interface LocalGraphPanelProps {
   noteId: string;
@@ -258,6 +259,14 @@ export function LocalGraphPanel({
         <p>{nodeCount} nodes</p>
         <p>{edgeCount} edges</p>
       </div>
+
+      {nodeCount === 0 ? (
+        <EmptyState
+          icon="🕸️"
+          title="No connections yet"
+          description="Add wiki links or process this note to discover relationships with other notes."
+        />
+      ) : null}
 
       {rendererMode === "sigma" ? (
         <div ref={canvasRef} className="local-graph-canvas-placeholder" aria-label="Local graph canvas" />
