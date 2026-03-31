@@ -119,3 +119,46 @@ def test_local_graph_respects_node_limit_and_marks_truncated(client: TestClient)
 def test_local_graph_returns_404_for_unknown_note(client: TestClient) -> None:
     response = client.get("/v1/graph/local/missing-note")
     assert response.status_code == 404
+
+
+def test_local_graph_excludes_note_titles_and_link_targets_from_entities(
+    client: TestClient,
+) -> None:
+    client.put(
+        "/v1/notes/local-noise-root",
+        json=_payload(
+            "local-noise-root",
+            "Noise Root",
+            "Machine Learning links to [[Noise Neighbor]]",
+            "2026-03-29T12:20:00Z",
+        ),
+    )
+    client.put(
+        "/v1/notes/local-noise-neighbor",
+        json=_payload(
+            "local-noise-neighbor",
+            "Noise Neighbor",
+            "Neighbor body",
+            "2026-03-29T12:21:00Z",
+        ),
+    )
+
+    response = client.get(
+        "/v1/graph/local/local-noise-root",
+        params={
+            "max_hops": 1,
+            "limit_nodes": 80,
+            "min_confidence": 0,
+            "include_types": "note,entity,relation",
+        },
+    )
+    assert response.status_code == 200
+
+    entity_labels = {
+        node["label"].lower()
+        for node in response.json()["nodes"]
+        if node["type"] == "entity"
+    }
+    assert "machine learning" in entity_labels
+    assert "noise root" not in entity_labels
+    assert "noise neighbor" not in entity_labels

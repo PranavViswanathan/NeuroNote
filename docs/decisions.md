@@ -29,6 +29,22 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
   - Host-side `curl http://127.0.0.1:8000/...` from the Codex sandbox was unreliable during this validation pass even while compose services were healthy.
   - The live smoke gate was therefore verified from inside the running `api` container via loopback (`127.0.0.1:8000`), which exercised the same long-running FastAPI process successfully.
 
+## 2026-03-29 (Local Graph Noise Hardening)
+- Debug outcome:
+  - The local graph API was functionally healthy but still noisy because it performed entity extraction over synthetic title+body text.
+  - That let note titles and explicit `[[linked note]]` targets appear as entity nodes even though the graph already modeled them as note nodes connected by `LINKS_TO`.
+- Implementation:
+  - `LocalGraphService` now extracts entities from persisted block/body content, not note-title-prefixed synthetic text.
+  - The local graph path now filters entity labels that normalize to:
+    - the current note title,
+    - explicit wiki-link target titles already represented as note links.
+  - Local graph extraction now also seeds dictionary terms from the alias table for better parity with processing-time extraction.
+- Regression coverage:
+  - Added unit and integration tests proving note titles and wiki-link target titles are excluded from entity nodes while real body entities remain.
+- Validation:
+  - Targeted graph/NLP suites passed (`20 passed`).
+  - Live smoke graph for a note linking `[[Graph Clean Neighbor]]` now returns only expected entity labels: `Machine Learning`, `graph reasoning`.
+
 ## 2026-03-17 (Release Gate Standardization)
 - Added `docs/release_checklist.md` as the canonical epic completion checklist.
 - Gate policy is now explicit and strict:

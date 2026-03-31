@@ -3,6 +3,7 @@
 import { EditorContent, useEditor, type JSONContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { InputModal } from "../ui/InputModal";
 
 import {
   EDITOR_COMMANDS,
@@ -139,6 +140,8 @@ export function TipTapEditor({
     parentPreviewText: null,
     hintText: "No nesting action available for current block",
   });
+  const [mathModalOpen, setMathModalOpen] = useState(false);
+  const [mathMode, setMathMode] = useState<"inline" | "block">("inline");
   const wikiSearchTokenRef = useRef(0);
   const blockRefSearchTokenRef = useRef(0);
   const keydownHandlerRef = useRef<(event: KeyboardEventLike) => boolean>(() => false);
@@ -248,6 +251,22 @@ export function TipTapEditor({
       },
     },
   });
+
+  const handleInsertMath = useCallback(
+    (latex: string) => {
+      if (!editor || !latex.trim()) return;
+
+      const normalizedLatex = normalizeMathLatex(latex);
+      if (!normalizedLatex) return;
+
+      if (mathMode === "inline") {
+        editor.chain().focus().insertContent({ type: "mathInline", attrs: { latex: normalizedLatex } }).run();
+      } else {
+        editor.chain().focus().insertContent({ type: "mathBlock", attrs: { latex: normalizedLatex } }).run();
+      }
+    },
+    [editor, mathMode],
+  );
 
   const commandItems = useMemo<EditorCommandDefinition[]>(() => {
     if (paletteOpen) {
@@ -407,19 +426,15 @@ export function TipTapEditor({
           chain = chain.setHorizontalRule();
           break;
         case "mathInline": {
-          const latex = normalizeMathLatex(window.prompt("Inline LaTeX", "x^2 + y^2") ?? "");
-          if (!latex) {
-            return;
-          }
-          chain = chain.insertContent({ type: "mathInline", attrs: { latex } });
+          shouldRunChain = false;
+          setMathMode("inline");
+          setMathModalOpen(true);
           break;
         }
         case "mathBlock": {
-          const latex = normalizeMathLatex(window.prompt("Block LaTeX", "\\int_0^1 x \\, dx") ?? "");
-          if (!latex) {
-            return;
-          }
-          chain = chain.insertContent({ type: "mathBlock", attrs: { latex } });
+          shouldRunChain = false;
+          setMathMode("block");
+          setMathModalOpen(true);
           break;
         }
         case "image":
@@ -913,6 +928,15 @@ export function TipTapEditor({
           data-testid="tiptap-editor"
         />
       </div>
+
+      <InputModal
+        isOpen={mathModalOpen}
+        onClose={() => setMathModalOpen(false)}
+        onSubmit={handleInsertMath}
+        title={mathMode === "inline" ? "Insert Inline Math" : "Insert Block Math"}
+        label="LaTeX expression"
+        placeholder={mathMode === "inline" ? "x^2 + y^2" : "\\int_0^1 x \\, dx"}
+      />
     </div>
   );
 }

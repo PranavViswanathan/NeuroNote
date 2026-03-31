@@ -159,6 +159,10 @@ Each story follows the working rule from `docs/codex.md`:
   - Fixed hybrid extraction merge regression where repeated lowercase token fallback emitted contained subspans (`graph`, `reasoning`) alongside higher-quality phrase spans (`graph reasoning`).
   - Tightened lowercase phrase filtering to reject `explore`/`explores` action windows that were suppressing valid repeated-token entity mentions such as `eren`.
   - Validation results: Python suite `156 passed, 5 skipped`; DB suite `5 passed`; web suite `87 passed`; live API smoke verified `/health`, note save, processing completion, and `GET /v1/graph/local/{note_id}`.
+- E11 local graph noise hardening pass completed (2026-03-29):
+  - Local graph extraction now uses persisted block/body text instead of synthetic title+body composition for entity detection.
+  - Local graph entity nodes now exclude the current note title and explicit `[[wiki-link]]` target titles so note metadata is represented as note nodes/edges, not duplicate entity noise.
+  - Validation results: targeted graph/NLP suite `20 passed`; live local-graph smoke returned only expected entity labels (`Machine Learning`, `graph reasoning`) for the cleaned fixture.
 - Roadmap rebaseline completed (2026-03-12):
   - Legacy unfinished `E6-E9` are deprecated for planning purposes.
   - New commercial-track roadmap is now defined as `E6 Workspace`, `E7 Editor Commands`, `E8 Math/Images/Export`, `E9 UX Hardening`, `E10 Hybrid Workflows`, `E11 Guided Graph`, and `E12 Launch Hardening`.
@@ -282,6 +286,9 @@ Each story follows the working rule from `docs/codex.md`:
 - 2026-03-17: Entity extraction for graph-facing workflows uses a deterministic-plus-statistical hybrid pipeline.
   - Rationale: dictionary-only and case-sensitive fallback spotting causes low recall on lowercase informal notes, which suppresses graph nodes/edges despite valid note content.
   - Impacted areas: `api/src/app/nlp/extractors.py`, `api/src/app/nlp/pipeline.py`, `api/src/app/nlp/spotting.py`, `api/src/app/nlp/config.py`, `api/src/app/services/local_graph_service.py`, `tests/unit/test_entity_spotting.py`, `tests/unit/test_nlp_pipeline.py`, `tests/unit/test_nlp_config.py`, `tests/unit/test_local_graph_service.py`.
+- 2026-03-29: Local graph entity extraction excludes note-title and explicit wiki-link target noise.
+  - Rationale: note titles and linked note titles already have first-class note-node semantics; duplicating them as entity nodes makes the graph noisy and misleading.
+  - Impacted areas: `api/src/app/services/local_graph_service.py`, `tests/unit/test_local_graph_service.py`, `tests/integration/test_graph_api.py`.
 
 ## Epic E0: Project Foundations and Delivery Guardrails [Completed 2026-03-01]
 Context: The scoping doc assumes a multi-service system. Without shared conventions, implementation speed will collapse under integration drift. This epic creates the base structure, contract boundaries, and CI quality gates so all later epics are reliable.

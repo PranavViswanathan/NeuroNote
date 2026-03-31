@@ -6,6 +6,8 @@ import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent
 import { NoteEditor } from "../editor/NoteEditor";
 import { LocalGraphPanel } from "../graph/LocalGraphPanel";
 import { BacklinksModal } from "./BacklinksModal";
+import { InputModal } from "../ui/InputModal";
+import { ConfirmDialog } from "../ui/ConfirmDialog";
 import {
   ApiClientError,
   deleteNote,
@@ -173,6 +175,10 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
     ...DEFAULT_LOCAL_GRAPH_FILTERS,
     include_types: [...DEFAULT_LOCAL_GRAPH_FILTERS.include_types],
   });
+  const [renameModalOpen, setRenameModalOpen] = useState(false);
+  const [noteToRename, setNoteToRename] = useState<NoteSummary | null>(null);
+  const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
+  const [noteToDelete, setNoteToDelete] = useState<NoteSummary | null>(null);
   const createInFlightRef = useRef(false);
   const contextMenuRef = useRef<HTMLUListElement | null>(null);
   const quickSwitchInputRef = useRef<HTMLInputElement | null>(null);
@@ -521,20 +527,24 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
   }, [baseUrl, refreshNotes]);
 
   const handleRenameNote = useCallback(
-    async (noteId: string) => {
+    (noteId: string) => {
       const selected = notes.find((item) => item.note_id === noteId);
       if (!selected) {
         return;
       }
+      setNoteToRename(selected);
+      setRenameModalOpen(true);
+      closeContextMenu();
+    },
+    [notes, closeContextMenu],
+  );
 
-      const nextTitle = window.prompt("Rename note", selected.note_title);
-      if (nextTitle == null) {
-        closeContextMenu();
-        return;
-      }
+  const handleRenameSubmit = useCallback(
+    async (nextTitle: string) => {
+      if (!noteToRename) return;
+
       const trimmedTitle = nextTitle.trim();
-      if (!trimmedTitle || trimmedTitle === selected.note_title) {
-        closeContextMenu();
+      if (!trimmedTitle || trimmedTitle === noteToRename.note_title) {
         return;
       }
 
@@ -542,7 +552,7 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
       setNotes((current) =>
         sortWorkspaceNotes(
           current.map((item) =>
-            item.note_id === noteId
+            item.note_id === noteToRename.note_id
               ? {
                   ...item,
                   note_title: trimmedTitle,
@@ -552,10 +562,9 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
           ),
         ),
       );
-      closeContextMenu();
 
       try {
-        const existing = await getNote(baseUrl, noteId);
+        const existing = await getNote(baseUrl, noteToRename.note_id);
         await saveNote(baseUrl, {
           note_id: existing.note_id,
           note_title: trimmedTitle,
@@ -567,7 +576,7 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
           content_text: existing.content_text,
           updated_at: new Date().toISOString(),
         });
-        await refreshNotes(noteId);
+        await refreshNotes(noteToRename.note_id);
       } catch (error) {
         setNotes(previousNotes);
         if (error instanceof ApiClientError && error.status === 409) {
@@ -577,11 +586,25 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
         setErrorMessage("Failed to rename note");
       }
     },
-    [baseUrl, closeContextMenu, notes, refreshNotes],
+    [baseUrl, notes, noteToRename, refreshNotes],
   );
 
-  const handleDeleteNote = useCallback(
-    async (noteId: string) => {
+  const handleDeleteClick = useCallback(
+    (noteId: string) => {
+      const note = notes.find((item) => item.note_id === noteId);
+      if (!note) return;
+      setNoteToDelete(note);
+      setDeleteDialogOpen(true);
+      closeContextMenu();
+    },
+    [notes, closeContextMenu],
+  );
+
+  const handleDeleteConfirm = useCallback(
+    async () => {
+      if (!noteToDelete) return;
+
+      const noteId = noteToDelete.note_id;
       const previousNotes = notes;
       const previousSelected = selectedNoteId;
       const remaining = notes.filter((item) => item.note_id !== noteId);
@@ -599,7 +622,6 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
         }
         return pickFallbackSelection(remaining);
       });
-      closeContextMenu();
 
       try {
         await deleteNote(baseUrl, noteId);
@@ -611,7 +633,7 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
         setErrorMessage("Failed to delete note");
       }
     },
-    [baseUrl, closeContextMenu, notes, refreshNotes, selectedNoteId],
+    [baseUrl, notes, noteToDelete, refreshNotes, selectedNoteId],
   );
 
   const handleTogglePinnedNote = useCallback(
@@ -1168,13 +1190,33 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
               type="button"
               role="menuitem"
               className="danger"
-              onClick={() => void handleDeleteNote(contextMenu.noteId)}
+              onClick={() => handleDeleteClick(contextMenu.noteId)}
             >
               Delete note
             </button>
           </li>
         </ul>
       ) : null}
+
+      <InputModal
+        isOpen={renameModalOpen}
+        onClose={() => setRenameModalOpen(false)}
+        onSubmit={handleRenameSubmit}
+        title="Rename Note"
+        label="Note title"
+        initialValue={noteToRename?.note_title || ""}
+        required
+      />
+
+      <ConfirmDialog
+        isOpen={deleteDialogOpen}
+        onClose={() => setDeleteDialogOpen(false)}
+        onConfirm={handleDeleteConfirm}
+        title="Delete Note"
+        message={`Are you sure you want to delete "${noteToDelete?.note_title}"? This action cannot be undone.`}
+        confirmLabel="Delete"
+        variant="danger"
+      />
     </section>
   );
 }

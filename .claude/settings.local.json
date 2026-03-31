@@ -1,0 +1,24 @@
+{
+  "permissions": {
+    "allow": [
+      "WebSearch",
+      "WebFetch(domain:help.obsidian.md)",
+      "WebFetch(domain:medium.com)",
+      "WebFetch(domain:mindmappingsoftwareblog.com)",
+      "WebFetch(domain:www.obsibrain.com)",
+      "WebFetch(domain:adamfard.com)",
+      "WebFetch(domain:davisdesigninteractive.medium.com)",
+      "WebFetch(domain:matthiasfrank.de)",
+      "WebFetch(domain:obsidian.md)",
+      "WebFetch(domain:www.lindy.ai)",
+      "WebFetch(domain:goodux.appcues.com)",
+      "WebFetch(domain:www.candu.ai)",
+      "WebFetch(domain:builtformars.com)",
+      "WebFetch(domain:www.eleken.co)",
+      "Bash(npm run typecheck:*)",
+      "Bash(git add:*)"
+    ],
+    "deny": [],
+    "ask": []
+  }
+}

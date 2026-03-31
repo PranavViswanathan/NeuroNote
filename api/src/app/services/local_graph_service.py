@@ -7,8 +7,11 @@ import re
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.db.models.block import Block
 from app.db.models.note import Note
+from app.db.repositories.entity_alias_repository import EntityAliasRepository
 from app.nlp.pipeline import NoteNlpPipeline
+from app.nlp.types import BlockTextInput
 from shared.contracts.python.v1.graph import LocalGraphResponse
 from shared.contracts.python.v1.graph import LocalGraphEdge
 from shared.contracts.python.v1.graph import LocalGraphFilters
@@ -33,6 +36,7 @@ class _NoteSnapshot:
     note_id: str
     note_title: str
     content_text: str
+    blocks: list[BlockTextInput]
 
 
 class LocalGraphNoteNotFoundError(RuntimeError):
@@ -65,6 +69,21 @@ class LocalGraphService:
         return normalized
 
     def _list_notes(self) -> list[_NoteSnapshot]:
+        block_rows = self._session.execute(
+            select(Block.note_id, Block.block_index, Block.content_text).order_by(
+                Block.note_id.asc(),
+                Block.block_index.asc(),
+            )
+        ).all()
+        blocks_by_note_id: dict[str, list[BlockTextInput]] = {}
+        for row in block_rows:
+            blocks_by_note_id.setdefault(str(row[0]), []).append(
+                BlockTextInput(
+                    block_index=int(row[1]),
+                    content_text=str(row[2]),
+                )
+            )
+
         rows = self._session.execute(
             select(Note.note_id, Note.note_title, Note.content_text).order_by(Note.note_id.asc())
         ).all()
@@ -73,6 +92,7 @@ class LocalGraphService:
                 note_id=str(row[0]),
                 note_title=str(row[1]),
                 content_text=str(row[2]),
+                blocks=list(blocks_by_note_id.get(str(row[0]), [])),
             )
             for row in rows
         ]
@@ -88,20 +108,44 @@ class LocalGraphService:
             links.append(normalized)
         return links
 
-    def _compose_pipeline_text(self, note: _NoteSnapshot) -> str:
-        title = note.note_title.strip()
-        body = note.content_text.strip()
-        if not title:
-            return body
-        if not body:
-            return title
-        return f"{title}\n\n{body}"
+    def _build_dictionary_terms(self) -> list[str]:
+        alias_records = EntityAliasRepository(self._session).list_alias_index()
+        terms: list[str] = []
+        seen: set[str] = set()
+        for alias_text, record in alias_records.items():
+            for term in (alias_text, record.canonical_name):
+                normalized = " ".join(term.split()).strip()
+                if not normalized:
+                    continue
+                key = normalized.lower()
+                if key in seen:
+                    continue
+                seen.add(key)
+                terms.append(normalized)
+        return terms
+
+    def _entity_is_note_noise(
+        self,
+        *,
+        entity_label: str,
+        note: _NoteSnapshot,
+        linked_note_titles: set[str],
+    ) -> bool:
+        normalized_label = self._normalize_title(entity_label)
+        if not normalized_label:
+            return True
+        if normalized_label == self._normalize_title(note.note_title):
+            return True
+        if normalized_label in linked_note_titles:
+            return True
+        return False
 
     def get_local_graph(self, query: LocalGraphQuery) -> LocalGraphResponse:
         include_types = self._normalize_include_types(query.include_types)
         include_type_set = set(include_types)
 
         notes = self._list_notes()
+        dictionary_terms = self._build_dictionary_terms()
         notes_by_id = {note.note_id: note for note in notes}
         root_note = notes_by_id.get(query.note_id)
         if root_note is None:
@@ -188,15 +232,39 @@ class LocalGraphService:
                 graph_note = notes_by_id.get(note_id)
                 if graph_note is None:
                     continue
-                pipeline_text = self._compose_pipeline_text(graph_note)
+                linked_note_titles = {
+                    linked_title
+                    for linked_title in self._extract_wiki_links(graph_note.content_text)
+                    if linked_title
+                }
+                pipeline_text = graph_note.content_text.strip()
+                extraction_blocks = graph_note.blocks or [
+                    BlockTextInput(block_index=0, content_text=graph_note.content_text)
+                ]
+                if not pipeline_text:
+                    pipeline_text = "\n\n".join(
+                        block.content_text.strip()
+                        for block in extraction_blocks
+                        if block.content_text.strip()
+                    )
+                if not pipeline_text:
+                    continue
                 content_hash = hashlib.sha256(pipeline_text.encode("utf-8")).hexdigest()
                 extraction = self._pipeline.extract(
                     note_id=graph_note.note_id,
                     content_text=pipeline_text,
                     content_hash=content_hash,
+                    blocks=extraction_blocks,
+                    dictionary_terms=dictionary_terms,
                 )
                 for entity in extraction.entities:
                     if float(entity.confidence) < query.min_confidence:
+                        continue
+                    if self._entity_is_note_noise(
+                        entity_label=entity.text,
+                        note=graph_note,
+                        linked_note_titles=linked_note_titles,
+                    ):
                         continue
                     entity_key = self._normalize_entity_key(entity.text)
                     entity_id = f"entity:{entity_key}"

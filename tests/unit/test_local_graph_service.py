@@ -121,3 +121,37 @@ def test_local_graph_service_includes_entities_for_lowercase_domain_terms(
     assert entity_nodes, "Expected lowercase domain terms to produce entity nodes"
     edge_types = {edge.type for edge in response.edges}
     assert "MENTIONS" in edge_types
+
+
+def test_local_graph_service_excludes_note_titles_and_link_targets_from_entity_nodes(
+    configured_db: None,
+) -> None:
+    _save_note(
+        note_id="graph-noise-root",
+        note_title="Graph Noise Root",
+        content_text="Machine Learning links to [[Graph Noise Neighbor]]",
+        updated_at="2026-03-29T12:10:00Z",
+    )
+    _save_note(
+        note_id="graph-noise-neighbor",
+        note_title="Graph Noise Neighbor",
+        content_text="Neighbor body",
+        updated_at="2026-03-29T12:11:00Z",
+    )
+
+    factory = get_session_factory()
+    with factory() as session:
+        response = LocalGraphService(session).get_local_graph(
+            LocalGraphQuery(
+                note_id="graph-noise-root",
+                max_hops=1,
+                limit_nodes=80,
+                min_confidence=0.0,
+                include_types=["note", "entity", "relation"],
+            )
+        )
+
+    entity_labels = {node.label.lower() for node in response.nodes if node.type == "entity"}
+    assert "machine learning" in entity_labels
+    assert "graph noise root" not in entity_labels
+    assert "graph noise neighbor" not in entity_labels
