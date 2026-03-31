@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { toLocalGraphViewModel } from "../../lib/graph/adapter";
 import type { LocalGraphResponse } from "../../../../shared/contracts/ts/v1/graph";
+import { SkeletonGraph } from "../ui/Skeleton";
 
 interface LocalGraphPanelProps {
   noteId: string;
@@ -180,7 +181,7 @@ export function LocalGraphPanel({
   }, [noteId, viewModel.nodes]);
 
   if (isLoading) {
-    return <p className="local-graph-loading">Loading local graph...</p>;
+    return <SkeletonGraph />;
   }
 
   if (errorMessage) {

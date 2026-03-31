@@ -4,6 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 
 import { EditorToolbar } from "./EditorToolbar";
 import { TipTapEditor, type TipTapUpdatePayload } from "./TipTapEditor";
+import { SkeletonEditor } from "../ui/Skeleton";
 import {
   exportNoteMarkdown,
   listNotes,
@@ -478,6 +479,10 @@ export function NoteEditor({
       setEditorError("Failed to export markdown");
     }
   }, [baseUrl, noteId]);
+
+  if (isLoading) {
+    return <SkeletonEditor />;
+  }
 
   return (
     <section className="note-editor" data-testid="note-editor">

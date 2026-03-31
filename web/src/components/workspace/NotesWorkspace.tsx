@@ -8,6 +8,7 @@ import { LocalGraphPanel } from "../graph/LocalGraphPanel";
 import { BacklinksModal } from "./BacklinksModal";
 import { InputModal } from "../ui/InputModal";
 import { ConfirmDialog } from "../ui/ConfirmDialog";
+import { SkeletonNoteList } from "../ui/Skeleton";
 import {
   ApiClientError,
   deleteNote,
@@ -1014,7 +1015,7 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
           {!isLoading && unpinnedNotes.length === 0 ? <p className="notes-empty">No unpinned notes.</p> : null}
         </section>
 
-        {isLoading ? <p className="notes-loading">Loading notes...</p> : null}
+        {isLoading ? <SkeletonNoteList count={8} /> : null}
         {!isLoading && notes.length === 0 ? <p className="notes-empty">No notes yet. Create your first note.</p> : null}
         {errorMessage ? (
           <div className="notes-error-panel">
