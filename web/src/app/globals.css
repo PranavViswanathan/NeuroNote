@@ -2169,3 +2169,33 @@ select:focus-visible {
   background: #f0f7f2;
   border: 1px solid #cfe0d4;
 }
+
+/* Bulk actions */
+.bulk-actions-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--space-2) var(--space-3);
+  background: var(--color-surface-raised);
+  border-bottom: 1px solid var(--color-border);
+  gap: var(--space-2);
+}
+
+.bulk-actions-count {
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+  white-space: nowrap;
+}
+
+.bulk-actions-buttons {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+
+.note-select-checkbox {
+  display: flex;
+  align-items: center;
+  padding: 0 var(--space-2);
+  flex-shrink: 0;
+}

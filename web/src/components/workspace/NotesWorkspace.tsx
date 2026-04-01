@@ -211,6 +211,11 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [noteToDelete, setNoteToDelete] = useState<NoteSummary | null>(null);
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
+  const [selectionMode, setSelectionMode] = useState(false);
+  const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
+  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
+  const [bulkTagDialogOpen, setBulkTagDialogOpen] = useState(false);
+  const [bulkSubjectDialogOpen, setBulkSubjectDialogOpen] = useState(false);
   const createInFlightRef = useRef(false);
   const contextMenuRef = useRef<HTMLUListElement | null>(null);
   const quickSwitchInputRef = useRef<HTMLInputElement | null>(null);
@@ -250,6 +255,27 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
   }, []);
+
+  const toggleNoteSelection = useCallback((noteId: string) => {
+    setSelectedNoteIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(noteId)) {
+        next.delete(noteId);
+      } else {
+        next.add(noteId);
+      }
+      return next;
+    });
+  }, []);
+
+  const clearSelection = useCallback(() => {
+    setSelectedNoteIds(new Set());
+    setSelectionMode(false);
+  }, []);
+
+  const selectAll = useCallback(() => {
+    setSelectedNoteIds(new Set(notes.map((n) => n.note_id)));
+  }, [notes]);
 
   const closeQuickSwitch = useCallback(() => {
     setQuickSwitchOpen(false);
@@ -724,6 +750,68 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
     [baseUrl, notes, noteToDelete, refreshNotes, selectedNoteId],
   );
 
+  const handleBulkDelete = useCallback(async () => {
+    if (selectedNoteIds.size === 0) return;
+    for (const noteId of selectedNoteIds) {
+      try {
+        await deleteNote(baseUrl, noteId);
+      } catch {
+        // continue deleting others even if one fails
+      }
+    }
+    clearSelection();
+    void refreshNotes(selectedNoteId);
+  }, [baseUrl, clearSelection, refreshNotes, selectedNoteId, selectedNoteIds]);
+
+  const handleBulkTag = useCallback(async (tagValue: string) => {
+    if (selectedNoteIds.size === 0) return;
+    for (const noteId of selectedNoteIds) {
+      try {
+        const existing = await getNote(baseUrl, noteId);
+        const updatedTags = Array.from(new Set([...existing.tags, tagValue.trim().toLowerCase()]));
+        await saveNote(baseUrl, {
+          note_id: existing.note_id,
+          note_title: existing.note_title,
+          subject_id: existing.subject_id,
+          tags: updatedTags,
+          is_pinned: existing.is_pinned,
+          is_archived: existing.is_archived,
+          content_json: existing.content_json,
+          content_text: existing.content_text,
+          updated_at: new Date().toISOString(),
+        });
+      } catch {
+        // continue
+      }
+    }
+    clearSelection();
+    void refreshNotes(selectedNoteId);
+  }, [baseUrl, clearSelection, refreshNotes, selectedNoteId, selectedNoteIds]);
+
+  const handleBulkSubject = useCallback(async (subjectValue: string) => {
+    if (selectedNoteIds.size === 0) return;
+    for (const noteId of selectedNoteIds) {
+      try {
+        const existing = await getNote(baseUrl, noteId);
+        await saveNote(baseUrl, {
+          note_id: existing.note_id,
+          note_title: existing.note_title,
+          subject_id: subjectValue.trim(),
+          tags: existing.tags,
+          is_pinned: existing.is_pinned,
+          is_archived: existing.is_archived,
+          content_json: existing.content_json,
+          content_text: existing.content_text,
+          updated_at: new Date().toISOString(),
+        });
+      } catch {
+        // continue
+      }
+    }
+    clearSelection();
+    void refreshNotes(selectedNoteId);
+  }, [baseUrl, clearSelection, refreshNotes, selectedNoteId, selectedNoteIds]);
+
   const handleTogglePinnedNote = useCallback(
     async (noteId: string) => {
       const target = notes.find((item) => item.note_id === noteId);
@@ -984,10 +1072,37 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
             <h1>NeuroNote</h1>
             <p>Focused notes with graph-aware processing</p>
           </div>
-          <button type="button" className="primary-action-button" onClick={() => void handleCreateNote()} disabled={isCreatingNote}>
-            New note
-          </button>
+          <div style={{ display: "flex", gap: "var(--space-2)" }}>
+            <button
+              type="button"
+              className={`editor-command-button${selectionMode ? " active" : ""}`}
+              onClick={() => {
+                if (selectionMode) {
+                  clearSelection();
+                } else {
+                  setSelectionMode(true);
+                }
+              }}
+            >
+              {selectionMode ? "Cancel" : "Select"}
+            </button>
+            <button type="button" className="primary-action-button" onClick={() => void handleCreateNote()} disabled={isCreatingNote}>
+              New note
+            </button>
+          </div>
         </header>
+
+        {selectionMode && (
+          <div className="bulk-actions-bar">
+            <span className="bulk-actions-count">{selectedNoteIds.size} selected</span>
+            <div className="bulk-actions-buttons">
+              <button type="button" className="btn btn-sm btn-ghost" onClick={selectAll}>All</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setBulkTagDialogOpen(true)} disabled={selectedNoteIds.size === 0}>Tag</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setBulkSubjectDialogOpen(true)} disabled={selectedNoteIds.size === 0}>Subject</button>
+              <button type="button" className="btn btn-sm btn-danger" onClick={() => setBulkDeleteDialogOpen(true)} disabled={selectedNoteIds.size === 0}>Delete</button>
+            </div>
+          </div>
+        )}
 
         <div className="workspace-stat-grid" aria-label="Workspace summary">
           <article className="workspace-stat-card">
@@ -1081,7 +1196,19 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
             </h2>
             <ul className="notes-list">
               {pinnedNotes.map((note) => (
-                <li key={`pinned-${note.note_id}`}>{renderNoteButton(note)}</li>
+                <li key={`pinned-${note.note_id}`}>
+                  {selectionMode && (
+                    <label className="note-select-checkbox">
+                      <input
+                        type="checkbox"
+                        checked={selectedNoteIds.has(note.note_id)}
+                        onChange={() => toggleNoteSelection(note.note_id)}
+                        aria-label={`Select ${note.note_title}`}
+                      />
+                    </label>
+                  )}
+                  {renderNoteButton(note)}
+                </li>
               ))}
             </ul>
           </section>
@@ -1105,6 +1232,16 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
                 role="option"
                 aria-selected={note.note_id === selectedNoteId}
               >
+                {selectionMode && (
+                  <label className="note-select-checkbox">
+                    <input
+                      type="checkbox"
+                      checked={selectedNoteIds.has(note.note_id)}
+                      onChange={() => toggleNoteSelection(note.note_id)}
+                      aria-label={`Select ${note.note_title}`}
+                    />
+                  </label>
+                )}
                 {renderNoteButton(note, note.note_id === highlightedNoteId)}
               </li>
             ))}
@@ -1360,6 +1497,40 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
       <KeyboardShortcutsModal
         isOpen={shortcutsModalOpen}
         onClose={() => setShortcutsModalOpen(false)}
+      />
+
+      <ConfirmDialog
+        isOpen={bulkDeleteDialogOpen}
+        title="Delete notes"
+        message={`Delete ${selectedNoteIds.size} note${selectedNoteIds.size === 1 ? "" : "s"}? This cannot be undone.`}
+        confirmLabel="Delete"
+        variant="danger"
+        onConfirm={() => {
+          void handleBulkDelete();
+        }}
+        onClose={() => setBulkDeleteDialogOpen(false)}
+      />
+
+      <InputModal
+        isOpen={bulkTagDialogOpen}
+        title="Add tag to selected notes"
+        label="Tag"
+        placeholder="e.g. ml"
+        onClose={() => setBulkTagDialogOpen(false)}
+        onSubmit={(value) => {
+          void handleBulkTag(value);
+        }}
+      />
+
+      <InputModal
+        isOpen={bulkSubjectDialogOpen}
+        title="Change subject for selected notes"
+        label="Subject"
+        placeholder="e.g. inbox"
+        onClose={() => setBulkSubjectDialogOpen(false)}
+        onSubmit={(value) => {
+          void handleBulkSubject(value);
+        }}
       />
     </section>
   );
