@@ -1768,3 +1768,76 @@ body {
   border-radius: 8px;
   overflow: hidden;
 }
+
+/* ── Hover & Focus States (Task 2.2) ────────────────────── */
+
+/* Global cursor rules */
+button,
+[role="button"],
+label[for],
+select,
+summary {
+  cursor: pointer;
+}
+
+button:disabled,
+[aria-disabled="true"] {
+  cursor: not-allowed;
+}
+
+/* Cursor utility classes */
+.cursor-wait    { cursor: wait; }
+.cursor-grab    { cursor: grab; }
+.cursor-grabbing { cursor: grabbing; }
+
+/* Link hover */
+a {
+  transition: color var(--transition-fast) var(--ease);
+}
+
+a:hover {
+  color: var(--accent-strong);
+}
+
+/* Select focus state */
+select:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+
+/* Graph node list hover */
+.local-graph-node-button:hover {
+  background: var(--workspace-surface);
+  border-color: var(--panel-border-strong);
+}
+
+/* Backlinks list item hover */
+.backlinks-modal-list button:hover {
+  background: var(--workspace-surface);
+  border-color: var(--panel-border-strong);
+}
+
+/* Note list transition uses tokens */
+.note-list-button {
+  transition:
+    border-color var(--transition-fast) var(--ease),
+    background var(--transition-fast) var(--ease),
+    transform var(--transition-fast) var(--ease);
+}
+
+/* Context menu item transition */
+.note-context-menu button {
+  transition: background var(--transition-fast) var(--ease);
+}
+
+/* Quick-switch item transition */
+.quick-switch-item {
+  transition: background var(--transition-fast) var(--ease);
+}
+
+/* Editor command button transition */
+.editor-command-button {
+  transition:
+    border-color var(--transition-fast) var(--ease),
+    background var(--transition-fast) var(--ease);
+}
