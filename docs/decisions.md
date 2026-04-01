@@ -389,3 +389,163 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
 - Validation:
   - Targeted spotting/NLP/local-graph suites passed.
   - Full Python suite passed: `153 passed, 5 skipped`.
+
+## 2026-03-31 (Phase 1: Critical Production Blockers — UI/UX Spec)
+
+Phase 1 of `docs/ui_ux_improvement_spec.md` delivered across 10 tasks. Goal: eliminate prototype-era UI patterns and establish a production-quality baseline.
+
+**Task 1.1 — Replace `window.prompt()` with Modal Dialogs**
+- Created `web/src/components/ui/Modal.tsx`: generic overlay dialog with `role="dialog"`, `aria-modal`, backdrop-click-to-close, and Escape key close.
+- Created `web/src/components/ui/InputModal.tsx`: controlled input form inside Modal for single-field prompts (rename note, enter LaTeX).
+- Replaced all `window.prompt()` calls in `NotesWorkspace.tsx` (rename note) and `TipTapEditor.tsx` (insert LaTeX inline, insert LaTeX block).
+- Added `ConfirmModal.tsx` for destructive-action confirmation (note delete), replacing bare `window.confirm()`.
+
+**Task 1.2 — Design System Foundation (Tokens + Focus Styles)**
+- Added CSS custom properties to `globals.css` for color, spacing, radius, shadow, and typography tokens (`--color-*`, `--space-*`, `--radius-*`, `--shadow-*`, `--font-*`).
+- Applied tokens uniformly across workspace and editor surfaces.
+- Added visible `:focus-visible` ring using `--color-focus-ring` on all interactive elements — keyboard users now get a clear focus indicator everywhere.
+
+**Task 1.3 — Fix Developer-Facing UI Strings**
+- Replaced processing-status badges (`queued`, `processing`, `done`, `failed`) with user-facing copy (`Analyzing…`, `Ready`, `Analysis failed`).
+- Replaced `save-status` raw strings with `Saving…`, `Saved`, `Save failed`.
+
+**Task 1.4 — HTML Metadata (SEO, Favicons, Open Graph)**
+- Updated `web/src/app/layout.tsx` with full `<meta>` set: title template, description, Open Graph tags, Twitter card.
+- Added favicon reference set (SVG + fallback PNG) to `public/`.
+
+**Task 1.5 — Global Error Boundary**
+- Created `web/src/components/ui/ErrorBoundary.tsx` as a React class component error boundary.
+- Wrapped the workspace root in `ErrorBoundary` so uncaught render errors show a recovery UI instead of a blank white screen.
+
+**Task 1.6 — Toast Notification System**
+- Created `web/src/components/ui/Toast.tsx` + `web/src/lib/toast.ts`: lightweight imperative toast API (`toast.success`, `toast.error`, `toast.info`).
+- Toasts auto-dismiss after 4 s; manual dismiss via × button; ARIA `role="status"` for live region announcements.
+- Replaced inline error string rendering in workspace with toast calls for non-fatal failures.
+
+**Task 1.7 — Skeleton Loading States**
+- Added skeleton shimmer components for the note list (`NoteListSkeleton`) and editor (`EditorSkeleton`) to replace blank panels during initial data fetch.
+- CSS `@keyframes shimmer` animation via `globals.css`.
+
+**Task 1.8 — Improve Empty States with CTAs**
+- Note list empty state now renders an illustration + "Create your first note" CTA button rather than a bare text message.
+- Search empty state distinguishes "no results for query" from "no notes yet".
+
+**Task 1.9 — Improve Error Messages (Consistent + Actionable)**
+- Standardized all user-visible error strings to follow `What went wrong. What to do.` format.
+- Network/API errors now surface a `Retry` button where a retry is meaningful.
+
+**Task 1.10 — Standardize Button Components**
+- Created `web/src/components/ui/Button.tsx` with `variant` (`primary` | `secondary` | `ghost` | `danger`) and `size` props.
+- Replaced ad-hoc `<button>` elements across workspace and editor with the shared component for consistent styling and disabled/loading states.
+
+**Validation (Phase 1 complete)**
+- Web typecheck passed.
+- Web test suite passed: `87 passed` (includes regression coverage for modal interactions, confirm dialogs, optimistic rollbacks).
+- One follow-up fix commit: updated existing tests that hard-coded old UI strings after Phase 1 label changes.
+
+---
+
+## 2026-03-31 (Phase 2: Core UX Polish — UI/UX Spec)
+
+Phase 2 of `docs/ui_ux_improvement_spec.md` delivered across 6 tasks. Goal: match Notion/Obsidian interaction quality for the core editing and navigation loop.
+
+**Task 2.1 — Design System Foundation (Phase 2 extension)**
+- Extended CSS token set with animation/transition tokens (`--transition-fast`, `--transition-base`).
+- Added `.interactive` utility class for consistent pointer cursor + transition on clickable elements.
+
+**Task 2.2 — Hover & Focus States**
+- Added hover highlight and focus ring to every note row in the sidebar list.
+- Added hover/active states to toolbar buttons, context menu items, and tag chips.
+- All states use design tokens; no hardcoded hex values.
+
+**Task 2.3 — Keyboard Shortcut Documentation Modal**
+- Created `web/src/components/ui/ShortcutsModal.tsx`: full reference table of keyboard shortcuts organized by section (Navigation, Editor, Actions).
+- Trigger: `?` key when focus is not inside a text input; also accessible via Help button in workspace header.
+- Modal uses existing `Modal.tsx` base; table styled with monospace `<kbd>` elements.
+
+**Task 2.4 — Resizable Graph Panel**
+- Made the local graph panel horizontally resizable via a drag handle on its left edge.
+- Resize implemented with `mousedown`/`mousemove`/`mouseup` listeners and a CSS `cursor: col-resize` affordance.
+- Panel width clamped to `[240px, 600px]`; width persisted in `localStorage` across sessions.
+- Graph canvas receives `key={panelWidth}` to force Sigma re-mount on resize completion.
+
+**Task 2.5 — Subject & Tag Picker Components**
+- Created `web/src/components/editor/SubjectPicker.tsx`: combobox-style input with dropdown suggestions, keyboard navigation (Enter to commit, Escape to close), outside-click close, and "Use…" option for new subjects.
+- Created `web/src/components/editor/TagPicker.tsx`: chip-based multi-select with:
+  - Enter or comma key to add a tag,
+  - × button to remove individual chips,
+  - Backspace on empty input removes the last chip,
+  - autocomplete dropdown filtered to exclude already-added tags,
+  - "Add…" option for tags not in suggestions.
+- Both components use `useId()` for accessible `aria-controls` linkage, `role="listbox"` / `role="option"` semantics, and `mouseDown` + `e.preventDefault()` on options to prevent input blur before selection.
+- `aria-expanded` is explicitly coerced to `boolean` (`!!showDropdown`) — TypeScript requires `Booleanish | undefined`, not `string | boolean`.
+- `NoteEditor.tsx` updated: replaced plain `<input>` fields for Subject and Tags with `SubjectPicker` and `TagPicker`. Tags are stored internally as `string[]`; `TagPicker` receives `parseTagsInput(tagsInput)` and emits `tags.join(", ")` back via `handleTagsChange`.
+- `NotesWorkspace.tsx` updated: added `availableSubjects` and `availableTags` as `useMemo` values derived from loaded `notes` state — no extra API calls required since note list already carries `subject_id` and `tags`.
+
+**Task 2.6 — Full-Text Search with Result Highlighting**
+- Backend search was already implemented in `note_repository.py` via `func.lower(Note.note_title).like(like_pattern) OR func.lower(Note.content_text).like(like_pattern)`.
+- Added frontend highlighting: `highlightMatch(text, query)` function in `NotesWorkspace.tsx` splits text on a regex built from the escaped query and wraps matching spans in `<mark className="search-highlight">`.
+  - Special regex characters in the query are escaped via `.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")` before building the `RegExp`.
+  - Returns `React.ReactNode` to allow inline `<mark>` elements inside note title and preview text.
+- Applied to both `note_title` and `content_text` preview in the note list.
+- `.search-highlight` CSS: `background: #fef08a; border-radius: 2px;` (yellow highlight, no bold/italic changes).
+
+**Validation (Phase 2 complete)**
+- Web typecheck passed.
+- Web test suite passed after updating `NoteEditor.test.tsx` to use chip-based tag interaction (see test suite notes below).
+
+---
+
+## 2026-04-01 (Comprehensive Test Suite — Backend + Frontend)
+
+Prior to this pass, the backend had zero pytest tests and the frontend had ~87 tests covering workspace and editor behavior but no component-level or API-client tests for Phase 2 additions.
+
+**Backend — 71 pytest tests across 4 new files (`api/tests/`)**
+
+`conftest.py` — shared fixtures:
+- SQLite **file-based** DB via `tempfile.NamedTemporaryFile` (not in-memory).
+  - Why: `note_asset_service.py` calls `inspect(engine)` which opens a second DB connection. With in-memory SQLite + `StaticPool`, SQLAlchemy's connection-pool reset-on-return issues a `ROLLBACK` mid-transaction, silently discarding all writes. File-based SQLite avoids this because the second connection still sees committed rows.
+- FastAPI dependency override: `app.dependency_overrides[get_db_session] = override_get_db` where `override_get_db` is a generator yielding the test session.
+- `PYTHONPATH=api/src:.` required to resolve `app.*` imports since `pyproject.toml` is at repo root but source lives in `api/src/`.
+- Fixtures: `db_engine` (function-scoped, creates schema, deletes temp file on teardown), `session` (`autoflush=False, expire_on_commit=False`), `note_repo`, `block_repo`, `client` (FastAPI `TestClient`).
+
+`test_note_repository.py` — 33 tests:
+- `upsert_note`: normalization, tags, subject fallback to `inbox`, version increment, `409` conflict on duplicate title.
+- `get_note`: present / missing.
+- `list_notes`: all filter combinations (search, subject, tag, pinned, archived).
+- `delete_note`, `list_backlinks_for_note`, wiki-link extraction.
+
+`test_block_repository.py` — 18 tests:
+- `replace_blocks`: UID generation, old block removal, `content_text` extraction.
+- `list_blocks_for_note`, `search_blocks`, `list_block_backlinks`, `extract_block_refs`.
+
+`test_notes_routes.py` — 11 tests:
+- All CRUD HTTP endpoints with `200`/`204`/`400`/`404`/`409` response code assertions.
+
+`test_backlinks_routes.py` — 9 tests:
+- Note backlinks (empty, populated, `404`), block listing, block search, block backlinks (`404`, populated).
+
+**Frontend — 46 new Vitest tests across 3 new files (`web/src/`)**
+
+`components/editor/SubjectPicker.test.tsx` — 12 tests:
+- Renders with value, dropdown on focus, suggestion filtering, `onChange` on click and Enter, "Use…" for new values, Escape closes, outside-click closes, disabled prop, value prop sync on external change.
+
+`components/editor/TagPicker.test.tsx` — 13 tests:
+- Chip rendering, remove chip (× button), add via Enter, add via comma, lowercase normalization, duplicate prevention, autocomplete dropdown, filtering already-added tags from suggestions, click suggestion, Backspace removes last tag, disabled prop, "Add…" option, clicking "Add…".
+
+`lib/api-client.test.ts` — 21 tests:
+- `global.fetch = vi.fn()` with `makeResponse(body, status)` helper.
+- All API functions: URL construction, HTTP method/body, response parsing, `ApiClientError` on 4xx/5xx, `detail` field from JSON error body, `null` detail on non-JSON bodies, `Blob` handling for markdown export.
+
+**NoteEditor test fix triggered by TagPicker integration:**
+- `NoteEditor.test.tsx` "autosaves organization metadata updates" test broke because it used `fireEvent.change(tagsInput, { value: "graph, nlp" })` — a plain-text approach that no longer works with the chip-based `TagPicker`.
+- Fix: simulate chip-based interaction:
+  ```
+  fireEvent.change(tags, { value: "graph" }) → fireEvent.keyDown(tags, { key: "," })
+  fireEvent.change(tags, { value: "nlp" })   → fireEvent.keyDown(tags, { key: "Enter" })
+  ```
+
+**Validation (test suite complete)**
+- Backend: `71 passed` via `PYTHONPATH=api/src:. api/.venv/bin/pytest api/tests/ -v`.
+- Frontend: `133 passed` via `npm --prefix web run test`.
+- Note: root `.venv` at repo root does not contain API deps. Use `api/.venv/bin/pytest` for backend tests.
