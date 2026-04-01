@@ -4,7 +4,6 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 
 import { NoteEditor } from "../editor/NoteEditor";
-import { LocalGraphPanel } from "../graph/LocalGraphPanel";
 import { GlobalGraphPanel } from "../graph/GlobalGraphPanel";
 import { BacklinksModal } from "./BacklinksModal";
 import { InputModal } from "../ui/InputModal";
@@ -18,7 +17,6 @@ import { applyTemplate, type Template } from "../../lib/templates";
 import {
   ApiClientError,
   deleteNote,
-  fetchLocalGraph,
   fetchGlobalGraph,
   fetchNoteBacklinks,
   getNote,
@@ -33,26 +31,12 @@ import {
 } from "../../lib/workspace/quick-switch";
 import type { NoteSummary } from "../../../../shared/contracts/ts/v1/note";
 import type { BacklinkItem } from "../../../../shared/contracts/ts/v1/backlink";
-import type { LocalGraphResponse, GlobalGraphResponse } from "../../../../shared/contracts/ts/v1/graph";
+import type { GlobalGraphResponse } from "../../../../shared/contracts/ts/v1/graph";
 
 const SELECTED_NOTE_STORAGE_KEY = "neuronote.workspace.selected";
 const RECENT_NOTES_STORAGE_KEY = "neuronote.workspace.recent";
 const MAX_RECENT_NOTES = 5;
 const FILTER_DEBOUNCE_MS = 250;
-interface LocalGraphFilterState {
-  max_hops: number;
-  limit_nodes: number;
-  min_confidence: number;
-  include_types: string[];
-}
-
-const DEFAULT_LOCAL_GRAPH_FILTERS: LocalGraphFilterState = {
-  max_hops: 1,
-  limit_nodes: 80,
-  min_confidence: 0.35,
-  include_types: ["note", "entity", "relation"],
-};
-
 interface NotesWorkspaceProps {
   baseUrl: string;
   initialNoteId?: string;
@@ -192,14 +176,6 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
   const [backlinkItems, setBacklinkItems] = useState<BacklinkItem[]>([]);
   const [backlinksLoading, setBacklinksLoading] = useState(false);
   const [backlinksErrorMessage, setBacklinksErrorMessage] = useState<string | null>(null);
-  const [localGraph, setLocalGraph] = useState<LocalGraphResponse | null>(null);
-  const [localGraphLoading, setLocalGraphLoading] = useState(false);
-  const [localGraphErrorMessage, setLocalGraphErrorMessage] = useState<string | null>(null);
-  const [localGraphFilters, setLocalGraphFilters] = useState<LocalGraphFilterState>({
-    ...DEFAULT_LOCAL_GRAPH_FILTERS,
-    include_types: [...DEFAULT_LOCAL_GRAPH_FILTERS.include_types],
-  });
-  const [graphView, setGraphView] = useState<"local" | "global">("local");
   const [globalGraph, setGlobalGraph] = useState<GlobalGraphResponse | null>(null);
   const [globalGraphLoading, setGlobalGraphLoading] = useState(false);
   const [globalGraphErrorMessage, setGlobalGraphErrorMessage] = useState<string | null>(null);
@@ -207,6 +183,7 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
     min_confidence: 0.0,
     include_types: ["note", "entity", "relation"],
   });
+  const [appView, setAppView] = useState<"notes" | "graph">("notes");
   const globalGraphRequestTokenRef = useRef(0);
   const [renameModalOpen, setRenameModalOpen] = useState(false);
   const [noteToRename, setNoteToRename] = useState<NoteSummary | null>(null);
@@ -224,7 +201,6 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
   const quickSwitchInputRef = useRef<HTMLInputElement | null>(null);
   const backlinksTriggerRef = useRef<HTMLButtonElement | null>(null);
   const backlinkRequestTokenRef = useRef(0);
-  const localGraphRequestTokenRef = useRef(0);
   const filtersInitializedRef = useRef(false);
 
   const filters: WorkspaceFilters = useMemo(
@@ -295,33 +271,6 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
       backlinksTriggerRef.current?.focus();
     }, 0);
   }, []);
-
-  const loadLocalGraph = useCallback(
-    async (noteId: string) => {
-      const token = localGraphRequestTokenRef.current + 1;
-      localGraphRequestTokenRef.current = token;
-      setLocalGraphLoading(true);
-      setLocalGraphErrorMessage(null);
-      try {
-        const response = await fetchLocalGraph(baseUrl, noteId, localGraphFilters);
-        if (localGraphRequestTokenRef.current !== token) {
-          return;
-        }
-        setLocalGraph(response);
-      } catch {
-        if (localGraphRequestTokenRef.current !== token) {
-          return;
-        }
-        setLocalGraph(null);
-        setLocalGraphErrorMessage("Failed to load local graph");
-      } finally {
-        if (localGraphRequestTokenRef.current === token) {
-          setLocalGraphLoading(false);
-        }
-      }
-    },
-    [baseUrl, localGraphFilters],
-  );
 
   const loadGlobalGraph = useCallback(async () => {
     const token = globalGraphRequestTokenRef.current + 1;
@@ -465,20 +414,10 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
   }, [selectedNoteId]);
 
   useEffect(() => {
-    if (!selectedNoteId) {
-      setLocalGraph(null);
-      setLocalGraphLoading(false);
-      setLocalGraphErrorMessage(null);
-      return;
-    }
-    void loadLocalGraph(selectedNoteId);
-  }, [loadLocalGraph, selectedNoteId]);
-
-  useEffect(() => {
-    if (graphView === "global") {
+    if (appView === "graph") {
       void loadGlobalGraph();
     }
-  }, [graphView, loadGlobalGraph]);
+  }, [appView, loadGlobalGraph]);
 
   useEffect(() => {
     if (selectedNoteId && notes.some((note) => note.note_id === selectedNoteId)) {
@@ -991,7 +930,7 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
         return;
       }
       if (item.actionId === "view_global_graph") {
-        setGraphView("global");
+        setAppView("graph");
       }
     },
     [
@@ -1001,7 +940,7 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
       handleTogglePinnedNote,
       openBacklinksModal,
       selectedNoteId,
-      setGraphView,
+      setAppView,
     ],
   );
 
@@ -1108,7 +1047,48 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
   );
 
   return (
-    <section className="notes-workspace" data-testid="notes-workspace">
+    <div className="app-shell">
+      <nav className="app-nav">
+        <span className="app-nav-brand">NeuroNote</span>
+        <div className="app-nav-tabs" role="tablist" aria-label="App view">
+          <button
+            type="button"
+            role="tab"
+            className={`app-nav-tab${appView === "notes" ? " active" : ""}`}
+            aria-selected={appView === "notes"}
+            onClick={() => setAppView("notes")}
+          >
+            Notes
+          </button>
+          <button
+            type="button"
+            role="tab"
+            className={`app-nav-tab${appView === "graph" ? " active" : ""}`}
+            aria-selected={appView === "graph"}
+            onClick={() => setAppView("graph")}
+          >
+            Graph
+          </button>
+        </div>
+      </nav>
+
+      {appView === "graph" ? (
+        <GlobalGraphPanel
+          graph={globalGraph}
+          filters={globalGraphFilters}
+          isLoading={globalGraphLoading}
+          errorMessage={globalGraphErrorMessage}
+          onRetry={() => { void loadGlobalGraph(); }}
+          onFiltersChange={(next) => { setGlobalGraphFilters(next); }}
+          onOpenNote={(nextNoteId) => {
+            if (!notes.some((item) => item.note_id === nextNoteId)) return;
+            setAppView("notes");
+            setSelectedNoteId(nextNoteId);
+            setHighlightedNoteId(nextNoteId);
+          }}
+        />
+      ) : (
+      <section className="notes-workspace" data-testid="notes-workspace">
       <aside className="notes-sidebar">
         <header className="notes-sidebar-header">
           <div>
@@ -1329,59 +1309,6 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
           </button>
         </div>
         {selectedNoteId ? (
-          <div className="graph-view-container">
-            <div className="graph-view-toggle" role="group" aria-label="Graph view">
-              <button
-                type="button"
-                className={`graph-view-btn${graphView === "local" ? " active" : ""}`}
-                onClick={() => setGraphView("local")}
-                aria-pressed={graphView === "local"}
-              >
-                Local
-              </button>
-              <button
-                type="button"
-                className={`graph-view-btn${graphView === "global" ? " active" : ""}`}
-                onClick={() => setGraphView("global")}
-                aria-pressed={graphView === "global"}
-              >
-                Global
-              </button>
-            </div>
-            {graphView === "local" ? (
-              <LocalGraphPanel
-                noteId={selectedNoteId}
-                graph={localGraph}
-                filters={localGraphFilters}
-                isLoading={localGraphLoading}
-                errorMessage={localGraphErrorMessage}
-                onRetry={() => { void loadLocalGraph(selectedNoteId); }}
-                onFiltersChange={(next) => { setLocalGraphFilters(next); }}
-                onOpenNote={(nextNoteId) => {
-                  if (!notes.some((item) => item.note_id === nextNoteId)) return;
-                  setSelectedNoteId(nextNoteId);
-                  setHighlightedNoteId(nextNoteId);
-                }}
-              />
-            ) : (
-              <GlobalGraphPanel
-                graph={globalGraph}
-                filters={globalGraphFilters}
-                isLoading={globalGraphLoading}
-                errorMessage={globalGraphErrorMessage}
-                onRetry={() => { void loadGlobalGraph(); }}
-                onFiltersChange={(next) => { setGlobalGraphFilters(next); }}
-                onOpenNote={(nextNoteId) => {
-                  if (!notes.some((item) => item.note_id === nextNoteId)) return;
-                  setGraphView("local");
-                  setSelectedNoteId(nextNoteId);
-                  setHighlightedNoteId(nextNoteId);
-                }}
-              />
-            )}
-          </div>
-        ) : null}
-        {selectedNoteId ? (
           <NoteEditor
             key={selectedNoteId}
             noteId={selectedNoteId}
@@ -1391,6 +1318,11 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
             }}
             availableSubjects={availableSubjects}
             availableTags={availableTags}
+            onOpenNote={(nextNoteId) => {
+              if (!notes.some((item) => item.note_id === nextNoteId)) return;
+              setSelectedNoteId(nextNoteId);
+              setHighlightedNoteId(nextNoteId);
+            }}
           />
         ) : (
           <div className="notes-empty-state">
@@ -1399,6 +1331,9 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
           </div>
         )}
       </main>
+
+      </section>
+      )}
 
       <BacklinksModal
         isOpen={backlinksOpen}
@@ -1586,6 +1521,6 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
           void handleCreateNoteFromTemplate(template);
         }}
       />
-    </section>
+    </div>
   );
 }
