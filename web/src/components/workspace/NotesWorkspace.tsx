@@ -13,6 +13,8 @@ import { SkeletonNoteList } from "../ui/Skeleton";
 import { EmptyState } from "../ui/EmptyState";
 import { ErrorMessage } from "../ui/ErrorMessage";
 import { KeyboardShortcutsModal } from "../ui/KeyboardShortcutsModal";
+import { TemplateGallery } from "../templates/TemplateGallery";
+import { applyTemplate, type Template } from "../../lib/templates";
 import {
   ApiClientError,
   deleteNote,
@@ -211,6 +213,7 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [noteToDelete, setNoteToDelete] = useState<NoteSummary | null>(null);
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
+  const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
   const [selectionMode, setSelectionMode] = useState(false);
   const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
   const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
@@ -639,6 +642,46 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
       setIsCreatingNote(false);
     }
   }, [baseUrl, refreshNotes]);
+
+  const handleCreateNoteFromTemplate = useCallback(
+    async (template: Template) => {
+      if (template.category === "blank") {
+        await handleCreateNote();
+        return;
+      }
+      if (createInFlightRef.current) {
+        return;
+      }
+      createInFlightRef.current = true;
+      setIsCreatingNote(true);
+      const newNoteId = makeNewNoteId();
+      const vars: Record<string, string> = {
+        title: template.name,
+        date: new Date().toISOString().split("T")[0] ?? "",
+      };
+      const content = applyTemplate(template, vars);
+      try {
+        const created = await saveNote(baseUrl, {
+          note_id: newNoteId,
+          note_title: template.name,
+          subject_id: "inbox",
+          tags: [],
+          is_pinned: false,
+          is_archived: false,
+          content_json: { type: "doc", content: [] },
+          content_text: content,
+          updated_at: new Date().toISOString(),
+        });
+        await refreshNotes(created.note_id);
+      } catch {
+        setErrorMessage("Failed to create note from template");
+      } finally {
+        createInFlightRef.current = false;
+        setIsCreatingNote(false);
+      }
+    },
+    [baseUrl, refreshNotes, handleCreateNote],
+  );
 
   const handleRenameNote = useCallback(
     (noteId: string) => {
@@ -1086,6 +1129,9 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
             >
               {selectionMode ? "Cancel" : "Select"}
             </button>
+            <button type="button" className="editor-command-button" onClick={() => setTemplateGalleryOpen(true)} disabled={isCreatingNote}>
+              From template
+            </button>
             <button type="button" className="primary-action-button" onClick={() => void handleCreateNote()} disabled={isCreatingNote}>
               New note
             </button>
@@ -1530,6 +1576,14 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
         onClose={() => setBulkSubjectDialogOpen(false)}
         onSubmit={(value) => {
           void handleBulkSubject(value);
+        }}
+      />
+      <TemplateGallery
+        isOpen={templateGalleryOpen}
+        onClose={() => setTemplateGalleryOpen(false)}
+        onSelect={(template) => {
+          setTemplateGalleryOpen(false);
+          void handleCreateNoteFromTemplate(template);
         }}
       />
     </section>
