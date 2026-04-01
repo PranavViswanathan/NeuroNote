@@ -2078,3 +2078,62 @@ select:focus-visible {
   font-style: inherit;
   font-weight: inherit;
 }
+
+/* ── Template Gallery ──────────────────────────────────────────── */
+
+.template-gallery-filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.template-gallery-grid {
+  display: grid;
+  grid-template-columns: repeat(2, 1fr);
+  gap: 10px;
+}
+
+.template-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  padding: 14px 16px;
+  background: var(--workspace-surface);
+  border: 1px solid var(--panel-border);
+  border-radius: 10px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: border-color 150ms ease, background 150ms ease;
+}
+
+.template-card:hover {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+
+.template-card-name {
+  font-weight: 600;
+  font-size: 0.9rem;
+  color: var(--text-strong);
+}
+
+.template-card-description {
+  font-size: 0.8rem;
+  color: var(--text-muted);
+  line-height: 1.4;
+}
+
+.template-card-badge {
+  margin-top: 6px;
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 0.7rem;
+  font-weight: 500;
+  color: var(--accent-ink);
+  background: #f0f7f2;
+  border: 1px solid #cfe0d4;
+}
