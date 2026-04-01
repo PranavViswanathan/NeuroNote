@@ -1842,6 +1842,46 @@ select:focus-visible {
     background var(--transition-fast) var(--ease);
 }
 
+/* ── Resizable Graph Panel (Task 2.4) ───────────────────── */
+.graph-resize-container {
+  position: relative;
+}
+
+.graph-resize-container.resizing {
+  user-select: none;
+}
+
+.graph-resize-container.resizing .local-graph-canvas-placeholder {
+  pointer-events: none;
+}
+
+.graph-resize-handle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 12px;
+  cursor: ns-resize;
+  margin-bottom: 4px;
+}
+
+.graph-resize-indicator {
+  width: 32px;
+  height: 3px;
+  background: var(--panel-border);
+  border-radius: var(--radius-full);
+  opacity: 0;
+  transition: opacity var(--transition-fast) var(--ease), background var(--transition-fast) var(--ease);
+}
+
+.graph-resize-handle:hover .graph-resize-indicator {
+  opacity: 1;
+}
+
+.graph-resize-handle:active .graph-resize-indicator {
+  opacity: 1;
+  background: var(--accent);
+}
+
 /* ── Keyboard Shortcuts Modal (Task 2.3) ────────────────── */
 .shortcuts-grid {
   display: grid;
