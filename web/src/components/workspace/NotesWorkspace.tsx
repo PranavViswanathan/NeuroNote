@@ -11,6 +11,7 @@ import { ConfirmDialog } from "../ui/ConfirmDialog";
 import { SkeletonNoteList } from "../ui/Skeleton";
 import { EmptyState } from "../ui/EmptyState";
 import { ErrorMessage } from "../ui/ErrorMessage";
+import { KeyboardShortcutsModal } from "../ui/KeyboardShortcutsModal";
 import {
   ApiClientError,
   deleteNote,
@@ -182,6 +183,7 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
   const [noteToRename, setNoteToRename] = useState<NoteSummary | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [noteToDelete, setNoteToDelete] = useState<NoteSummary | null>(null);
+  const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
   const createInFlightRef = useRef(false);
   const contextMenuRef = useRef<HTMLUListElement | null>(null);
   const quickSwitchInputRef = useRef<HTMLInputElement | null>(null);
@@ -456,6 +458,14 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
         setQuickSwitchQuery("");
         setQuickSwitchSelectedIndex(0);
         return;
+      }
+      if (event.key === "?" && !event.metaKey && !event.ctrlKey && !event.altKey) {
+        const tag = (event.target as HTMLElement)?.tagName;
+        if (tag !== "INPUT" && tag !== "TEXTAREA") {
+          event.preventDefault();
+          setShortcutsModalOpen(true);
+          return;
+        }
       }
       if (!quickSwitchOpen) {
         if (backlinksOpen && event.key === "Escape") {
@@ -1228,6 +1238,10 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
         message={`Are you sure you want to delete "${noteToDelete?.note_title}"? This action cannot be undone.`}
         confirmLabel="Delete"
         variant="danger"
+      />
+      <KeyboardShortcutsModal
+        isOpen={shortcutsModalOpen}
+        onClose={() => setShortcutsModalOpen(false)}
       />
     </section>
   );
