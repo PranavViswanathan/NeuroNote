@@ -16,7 +16,7 @@ import type {
 } from "../../../shared/contracts/ts/v1/media";
 import type { BacklinksResponse } from "../../../shared/contracts/ts/v1/backlink";
 import type { BlockSearchResponse } from "../../../shared/contracts/ts/v1/block";
-import type { LocalGraphResponse } from "../../../shared/contracts/ts/v1/graph";
+import type { LocalGraphResponse, GlobalGraphResponse } from "../../../shared/contracts/ts/v1/graph";
 
 export class ApiClientError extends Error {
   status: number;
@@ -223,4 +223,23 @@ export async function fetchLocalGraph(
     `${baseUrl}/v1/graph/local/${noteId}${suffix ? `?${suffix}` : ""}`,
   );
   return parseJsonResponse<LocalGraphResponse>(response);
+}
+
+interface GlobalGraphQuery {
+  limit_nodes?: number;
+  min_confidence?: number;
+  include_types?: string[];
+}
+
+export async function fetchGlobalGraph(
+  baseUrl: string,
+  query: GlobalGraphQuery = {},
+): Promise<GlobalGraphResponse> {
+  const params = new URLSearchParams();
+  if (query.limit_nodes !== undefined) params.set("limit_nodes", String(query.limit_nodes));
+  if (query.min_confidence !== undefined) params.set("min_confidence", String(query.min_confidence));
+  if (query.include_types && query.include_types.length > 0) params.set("include_types", query.include_types.join(","));
+  const suffix = params.toString();
+  const response = await fetch(`${baseUrl}/v1/graph/global${suffix ? `?${suffix}` : ""}`);
+  return parseJsonResponse<GlobalGraphResponse>(response);
 }
