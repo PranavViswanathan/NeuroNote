@@ -2067,3 +2067,14 @@ select:focus-visible {
   color: var(--text-strong);
   background: var(--border);
 }
+
+/* ── Search Highlight ──────────────────────────────────────────── */
+
+.search-highlight {
+  background: #fef08a;
+  color: inherit;
+  padding: 0 1px;
+  border-radius: 2px;
+  font-style: inherit;
+  font-weight: inherit;
+}

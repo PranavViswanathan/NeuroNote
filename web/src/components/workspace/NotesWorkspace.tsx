@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { KeyboardEvent as ReactKeyboardEvent, MouseEvent as ReactMouseEvent } from "react";
 
 import { NoteEditor } from "../editor/NoteEditor";
@@ -69,6 +69,22 @@ interface NoteContextMenuState {
   noteId: string;
   x: number;
   y: number;
+}
+
+function highlightMatch(text: string, query: string): React.ReactNode {
+  if (!query.trim()) return text;
+  const escaped = query.trim().replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const regex = new RegExp(`(${escaped})`, "gi");
+  const parts = text.split(regex);
+  return parts.map((part, i) =>
+    regex.test(part) ? (
+      <mark key={i} className="search-highlight">
+        {part}
+      </mark>
+    ) : (
+      part
+    ),
+  );
 }
 
 function compareByWorkspaceOrder(left: NoteSummary, right: NoteSummary): number {
@@ -898,15 +914,15 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
         onKeyDown={(event) => handleNoteContextMenuKeyDown(event, note.note_id)}
         aria-haspopup="menu"
       >
-        <span className="note-list-title">{note.note_title}</span>
-        <span className="note-list-preview">{toPreview(note.content_text)}</span>
+        <span className="note-list-title">{highlightMatch(note.note_title, search)}</span>
+        <span className="note-list-preview">{highlightMatch(toPreview(note.content_text), search)}</span>
         <span className="note-list-meta-row">
           <span className="note-list-meta">{note.subject_id}</span>
           <span className="note-list-date">{toDisplayDate(note.updated_at)}</span>
         </span>
       </button>
     ),
-    [closeContextMenu, handleNoteContextMenu, handleNoteContextMenuKeyDown, selectedNoteId],
+    [closeContextMenu, handleNoteContextMenu, handleNoteContextMenuKeyDown, search, selectedNoteId],
   );
 
   return (
