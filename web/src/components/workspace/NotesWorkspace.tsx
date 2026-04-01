@@ -202,6 +202,24 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
     [search, showArchived, subjectFilter, tagFilter],
   );
 
+  const availableSubjects = useMemo(() => {
+    const seen = new Set<string>();
+    for (const note of notes) {
+      if (note.subject_id) seen.add(note.subject_id);
+    }
+    return Array.from(seen).sort();
+  }, [notes]);
+
+  const availableTags = useMemo(() => {
+    const seen = new Set<string>();
+    for (const note of notes) {
+      for (const tag of note.tags) {
+        if (tag) seen.add(tag);
+      }
+    }
+    return Array.from(seen).sort();
+  }, [notes]);
+
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
   }, []);
@@ -1090,6 +1108,8 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
             onMetadataSaved={(payload) => {
               void handleMetadataSaved(payload);
             }}
+            availableSubjects={availableSubjects}
+            availableTags={availableTags}
           />
         ) : (
           <div className="notes-empty-state">

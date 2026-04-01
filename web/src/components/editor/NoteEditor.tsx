@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { EditorToolbar } from "./EditorToolbar";
+import { SubjectPicker } from "./SubjectPicker";
+import { TagPicker } from "./TagPicker";
 import { TipTapEditor, type TipTapUpdatePayload } from "./TipTapEditor";
 import { SkeletonEditor } from "../ui/Skeleton";
 import { ErrorMessage } from "../ui/ErrorMessage";
@@ -33,6 +35,8 @@ interface NoteEditorProps {
   autosaveDebounceMs?: number;
   processDebounceMs?: number;
   onMetadataSaved?: (payload: NoteMetadataPayload) => void;
+  availableSubjects?: string[];
+  availableTags?: string[];
 }
 
 interface NoteSnapshot {
@@ -108,6 +112,8 @@ export function NoteEditor({
   autosaveDebounceMs = 800,
   processDebounceMs = 3000,
   onMetadataSaved,
+  availableSubjects = [],
+  availableTags = [],
 }: NoteEditorProps) {
   const [documentJson, setDocumentJson] = useState<EditorDoc>(createEmptyEditorDoc());
   const [noteTitle, setNoteTitle] = useState("Untitled");
@@ -500,28 +506,24 @@ export function NoteEditor({
         />
       </label>
       <div className="note-editor-meta-grid">
-        <label className="note-editor-field">
+        <div className="note-editor-field">
           <span className="sr-only">Subject</span>
-          <input
-            className="note-editor-input"
-            aria-label="Subject"
-            type="text"
+          <SubjectPicker
             value={subjectId}
-            onChange={(event) => handleSubjectChange(event.target.value)}
+            onChange={handleSubjectChange}
+            suggestions={availableSubjects}
             disabled={isLoading}
           />
-        </label>
-        <label className="note-editor-field">
+        </div>
+        <div className="note-editor-field">
           <span className="sr-only">Tags</span>
-          <input
-            className="note-editor-input"
-            aria-label="Tags"
-            type="text"
-            value={tagsInput}
-            onChange={(event) => handleTagsChange(event.target.value)}
+          <TagPicker
+            value={parseTagsInput(tagsInput)}
+            onChange={(tags) => handleTagsChange(tags.join(", "))}
+            suggestions={availableTags}
             disabled={isLoading}
           />
-        </label>
+        </div>
       </div>
       <div className="note-editor-toggle-row">
         <label className="note-editor-toggle">

@@ -277,9 +277,10 @@ describe("NoteEditor", () => {
     fireEvent.change(screen.getByLabelText("Subject"), {
       target: { value: "ml" },
     });
-    fireEvent.change(screen.getByLabelText("Tags"), {
-      target: { value: "graph, nlp" },
-    });
+    fireEvent.change(screen.getByLabelText("Tags"), { target: { value: "graph" } });
+    fireEvent.keyDown(screen.getByLabelText("Tags"), { key: "," });
+    fireEvent.change(screen.getByLabelText("Tags"), { target: { value: "nlp" } });
+    fireEvent.keyDown(screen.getByLabelText("Tags"), { key: "Enter" });
     fireEvent.click(screen.getByLabelText("Pinned"));
 
     await waitFor(() => expect(saveNote).toHaveBeenCalled());
