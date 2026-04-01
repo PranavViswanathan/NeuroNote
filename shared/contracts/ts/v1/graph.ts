@@ -34,3 +34,21 @@ export interface LocalGraphResponse {
   edges: LocalGraphEdge[];
   meta: LocalGraphMeta;
 }
+
+export interface GlobalGraphFilters {
+  limit_nodes: number;
+  min_confidence: number;
+  include_types: string[];
+}
+
+export interface GlobalGraphMeta {
+  total_notes: number;
+  applied_filters: GlobalGraphFilters;
+  truncated: boolean;
+}
+
+export interface GlobalGraphResponse {
+  nodes: LocalGraphNode[];
+  edges: LocalGraphEdge[];
+  meta: GlobalGraphMeta;
+}

@@ -4,11 +4,30 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db_session
+from app.services.global_graph_service import GlobalGraphQuery, GlobalGraphService
 from app.services.local_graph_service import LocalGraphNoteNotFoundError
 from app.services.local_graph_service import LocalGraphQuery, LocalGraphService
+from shared.contracts.python.v1.graph import GlobalGraphResponse
 from shared.contracts.python.v1.graph import LocalGraphResponse
 
 router = APIRouter()
+
+
+@router.get("/graph/global", response_model=GlobalGraphResponse)
+def get_global_graph(
+    limit_nodes: int = Query(default=500, ge=1, le=2000),
+    min_confidence: float = Query(default=0.0, ge=0.0, le=1.0),
+    include_types: str = Query(default="note,entity,relation"),
+    session: Session = Depends(get_db_session),
+) -> GlobalGraphResponse:
+    include_type_values = [item.strip() for item in include_types.split(",") if item.strip()]
+    return GlobalGraphService(session).get_global_graph(
+        GlobalGraphQuery(
+            limit_nodes=limit_nodes,
+            min_confidence=min_confidence,
+            include_types=include_type_values,
+        )
+    )
 
 
 @router.get("/graph/local/{note_id}", response_model=LocalGraphResponse)

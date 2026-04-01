@@ -38,3 +38,21 @@ class LocalGraphResponse(BaseModel):
     nodes: list[LocalGraphNode]
     edges: list[LocalGraphEdge]
     meta: LocalGraphMeta
+
+
+class GlobalGraphFilters(BaseModel):
+    limit_nodes: int = Field(ge=1, le=2000)
+    min_confidence: float = Field(ge=0.0, le=1.0)
+    include_types: list[str] = Field(default_factory=list)
+
+
+class GlobalGraphMeta(BaseModel):
+    total_notes: int
+    applied_filters: GlobalGraphFilters
+    truncated: bool = False
+
+
+class GlobalGraphResponse(BaseModel):
+    nodes: list[LocalGraphNode]
+    edges: list[LocalGraphEdge]
+    meta: GlobalGraphMeta
