@@ -1,4 +1,5 @@
 :root {
+  /* App-specific palette (referenced by tokens.css semantic aliases) */
   --workspace-bg: #eff2f0;
   --workspace-surface: #f8faf8;
   --panel-bg: #ffffff;
@@ -19,6 +20,18 @@
 *::before,
 *::after {
   box-sizing: border-box;
+}
+
+/* Remove browser default focus ring — replaced by :focus-visible */
+*:focus {
+  outline: none;
+}
+
+/* Keyboard-only focus ring (skipped for mouse clicks) */
+*:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+  border-radius: var(--radius-sm);
 }
 
 html,
