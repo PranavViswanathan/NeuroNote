@@ -6,7 +6,9 @@ export type QuickSwitchActionId =
   | "open_note"
   | "create_note"
   | "toggle_pin_selected"
-  | "toggle_archive_selected";
+  | "toggle_archive_selected"
+  | "show_backlinks"
+  | "view_global_graph";
 
 export interface QuickSwitchItem {
   id: string;
@@ -51,6 +53,22 @@ function buildActionItems(
       subtitle: "Create a new untitled note",
       keywords: ["new", "create", "note"],
       actionId: "create_note",
+    },
+    {
+      id: "action:show_backlinks",
+      kind: "action",
+      title: "Show linked mentions",
+      subtitle: "Open backlinks panel for selected note",
+      keywords: ["backlinks", "links", "mentions", "linked", "references"],
+      actionId: "show_backlinks",
+    },
+    {
+      id: "action:view_global_graph",
+      kind: "action",
+      title: "View global graph",
+      subtitle: "Switch to the full knowledge graph view",
+      keywords: ["graph", "global", "knowledge", "map", "visualize", "all notes"],
+      actionId: "view_global_graph",
     },
   ];
 

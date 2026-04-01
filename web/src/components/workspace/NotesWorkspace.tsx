@@ -853,6 +853,14 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
       }
       if (item.actionId === "toggle_archive_selected") {
         await handleToggleArchivedNote(targetNoteId);
+        return;
+      }
+      if (item.actionId === "show_backlinks") {
+        openBacklinksModal();
+        return;
+      }
+      if (item.actionId === "view_global_graph") {
+        setGraphView("global");
       }
     },
     [
@@ -860,7 +868,9 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
       handleCreateNote,
       handleToggleArchivedNote,
       handleTogglePinnedNote,
+      openBacklinksModal,
       selectedNoteId,
+      setGraphView,
     ],
   );
 
