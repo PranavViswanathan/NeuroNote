@@ -1124,7 +1124,7 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
             <button type="button" className="editor-command-button" onClick={() => setTemplateGalleryOpen(true)} disabled={isCreatingNote}>
               From template
             </button>
-            <button type="button" className="primary-action-button" onClick={() => void handleCreateNote()} disabled={isCreatingNote}>
+            <button type="button" className="btn btn-primary btn-md" onClick={() => void handleCreateNote()} disabled={isCreatingNote}>
               New note
             </button>
           </div>
