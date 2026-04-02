@@ -114,7 +114,7 @@ describe("NotesWorkspace", () => {
     render(<NotesWorkspace baseUrl="http://localhost:8000" />);
 
     await screen.findByRole("listbox", { name: "Notes" });
-    fireEvent.click(screen.getByRole("button", { name: "New note" }));
+    fireEvent.click(screen.getByRole("button", { name: "+ New note" }));
 
     await waitFor(() => {
       expect(saveNote).toHaveBeenCalledTimes(1);
@@ -145,7 +145,7 @@ describe("NotesWorkspace", () => {
 
     render(<NotesWorkspace baseUrl="http://localhost:8000" />);
 
-    const createButton = await screen.findByRole("button", { name: "New note" });
+    const createButton = await screen.findByRole("button", { name: "+ New note" });
     fireEvent.click(createButton);
     fireEvent.click(createButton);
 
@@ -428,7 +428,7 @@ describe("NotesWorkspace", () => {
     );
 
     render(<NotesWorkspace baseUrl="http://localhost:8000" />);
-    expect(await screen.findByText("New note")).toBeInTheDocument();
+    expect(await screen.findByText("+ New note")).toBeInTheDocument();
     expect(document.querySelector(".skeleton-note-list")).toBeInTheDocument();
   });
 

@@ -1103,11 +1103,8 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
       <section className="notes-workspace" data-testid="notes-workspace">
       <aside className="notes-sidebar">
         <header className="notes-sidebar-header">
-          <div>
-            <h1>NeuroNote</h1>
-            <p>Focused notes with graph-aware processing</p>
-          </div>
-          <div style={{ display: "flex", gap: "var(--space-2)" }}>
+          <h1>Notes</h1>
+          <div className="notes-sidebar-actions">
             <button
               type="button"
               className={`editor-command-button${selectionMode ? " active" : ""}`}
@@ -1124,8 +1121,8 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
             <button type="button" className="editor-command-button" onClick={() => setTemplateGalleryOpen(true)} disabled={isCreatingNote}>
               From template
             </button>
-            <button type="button" className="btn btn-primary btn-md" onClick={() => void handleCreateNote()} disabled={isCreatingNote}>
-              New note
+            <button type="button" className="btn btn-primary btn-sm" onClick={() => void handleCreateNote()} disabled={isCreatingNote}>
+              + New note
             </button>
           </div>
         </header>
