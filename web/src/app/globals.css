@@ -668,6 +668,13 @@ body {
   padding: 6px 8px;
 }
 
+.editor-flyout--anchored {
+  z-index: 9000;
+  max-height: 280px;
+  overflow-y: auto;
+  min-width: 200px;
+}
+
 .tiptap-editor-shell {
   border: 1px solid #d4ddd5;
   border-radius: 18px;

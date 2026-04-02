@@ -145,6 +145,28 @@ export function D3GraphCanvas({
 
     svg.call(zoom);
 
+    const fitAll = () => {
+      if (simNodes.length === 0) return;
+      let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
+      for (const n of simNodes) {
+        const x = n.x ?? 0;
+        const y = n.y ?? 0;
+        if (x < minX) minX = x;
+        if (x > maxX) maxX = x;
+        if (y < minY) minY = y;
+        if (y > maxY) maxY = y;
+      }
+      const PADDING = 48;
+      const boxW = maxX - minX + PADDING * 2;
+      const boxH = maxY - minY + PADDING * 2;
+      const scale = Math.min(width / boxW, height / boxH, 1.5);
+      const tx = width / 2 - scale * ((minX + maxX) / 2);
+      const ty = height / 2 - scale * ((minY + maxY) / 2);
+      svg.call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+    };
+
+    simulation.on("end", fitAll);
+
     return () => {
       simulation.stop();
       svg.on(".zoom", null);

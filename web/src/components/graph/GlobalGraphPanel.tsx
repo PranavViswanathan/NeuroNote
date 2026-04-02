@@ -1,5 +1,7 @@
 "use client";
 
+import { useEffect, useRef, useState } from "react";
+
 import { D3GraphCanvas } from "./D3GraphCanvas";
 import type { GlobalGraphResponse } from "../../../../shared/contracts/ts/v1/graph";
 import { SkeletonGraph } from "../ui/Skeleton";
@@ -30,13 +32,52 @@ export function GlobalGraphPanel({
   onFiltersChange,
   onOpenNote,
 }: GlobalGraphPanelProps) {
-  const nodeCount = graph?.nodes.length ?? 0;
-  const edgeCount = graph?.edges.length ?? 0;
+  const [nodeSearch, setNodeSearch] = useState("");
+  const [canvasHeight, setCanvasHeight] = useState(600);
+  const canvasAreaRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const el = canvasAreaRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver((entries) => {
+      const h = entries[0]?.contentRect.height;
+      if (h && h > 0) setCanvasHeight(h);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+
+  const normalizedSearch = nodeSearch.trim().toLowerCase();
+
+  const visibleNodes = graph
+    ? normalizedSearch
+      ? graph.nodes.filter((n) => n.label.toLowerCase().includes(normalizedSearch))
+      : graph.nodes
+    : [];
+
+  const visibleNodeIds = new Set(visibleNodes.map((n) => n.id));
+
+  const visibleEdges = graph
+    ? graph.edges.filter(
+        (e) => visibleNodeIds.has(String(e.source)) && visibleNodeIds.has(String(e.target)),
+      )
+    : [];
+
+  const nodeCount = visibleNodes.length;
+  const edgeCount = visibleEdges.length;
 
   return (
     <div className="global-graph-view" aria-label="Global graph view">
       <aside className="global-graph-sidebar">
         <h2>Knowledge Graph</h2>
+        <input
+          className="notes-filter-input"
+          type="text"
+          aria-label="Search nodes"
+          placeholder="Search nodes…"
+          value={nodeSearch}
+          onChange={(e) => setNodeSearch(e.target.value)}
+        />
         <div className="local-graph-summary">
           <p>{nodeCount} nodes</p>
           <p>{edgeCount} edges</p>
@@ -79,7 +120,7 @@ export function GlobalGraphPanel({
         </div>
       </aside>
 
-      <div className="global-graph-canvas-area">
+      <div className="global-graph-canvas-area" ref={canvasAreaRef}>
         {isLoading ? (
           <SkeletonGraph />
         ) : errorMessage ? (
@@ -88,17 +129,21 @@ export function GlobalGraphPanel({
             actionLabel="Retry"
             onAction={onRetry}
           />
-        ) : nodeCount === 0 ? (
+        ) : !graph || nodeCount === 0 ? (
           <EmptyState
             icon="🕸️"
-            title="No notes yet"
-            description="Start creating notes to see your knowledge graph."
+            title={normalizedSearch ? "No matching nodes" : "No notes yet"}
+            description={
+              normalizedSearch
+                ? "Try a different search term."
+                : "Start creating notes to see your knowledge graph."
+            }
           />
         ) : (
           <D3GraphCanvas
-            nodes={graph!.nodes}
-            edges={graph!.edges}
-            height={600}
+            nodes={visibleNodes}
+            edges={visibleEdges}
+            height={canvasHeight}
             onNodeClick={(node) => {
               if (node.type === "note") onOpenNote(String(node.metadata.note_id ?? node.id));
             }}

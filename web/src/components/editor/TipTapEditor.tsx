@@ -3,6 +3,7 @@
 import { EditorContent, useEditor, type JSONContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from "react";
+import { createPortal } from "react-dom";
 import { InputModal } from "../ui/InputModal";
 
 import {
@@ -142,6 +143,7 @@ export function TipTapEditor({
   });
   const [mathModalOpen, setMathModalOpen] = useState(false);
   const [mathMode, setMathMode] = useState<"inline" | "block">("inline");
+  const [menuAnchor, setMenuAnchor] = useState<{ x: number; y: number } | null>(null);
   const wikiSearchTokenRef = useRef(0);
   const blockRefSearchTokenRef = useRef(0);
   const keydownHandlerRef = useRef<(event: KeyboardEventLike) => boolean>(() => false);
@@ -251,6 +253,22 @@ export function TipTapEditor({
       },
     },
   });
+
+  useEffect(() => {
+    if (!editor) return;
+    const anyMatch = slashMatch ?? blockRefMatch ?? wikiMatch;
+    if (anyMatch) {
+      try {
+        const pos = editor.state.selection.from;
+        const coords = editor.view.coordsAtPos(pos);
+        setMenuAnchor({ x: coords.left, y: coords.bottom });
+      } catch {
+        setMenuAnchor(null);
+      }
+    } else {
+      setMenuAnchor(null);
+    }
+  }, [slashMatch, blockRefMatch, wikiMatch, editor]);
 
   const handleInsertMath = useCallback(
     (latex: string) => {
@@ -769,6 +787,7 @@ export function TipTapEditor({
   }
 
   return (
+    <>
     <div className="tiptap-container" onKeyDown={(event) => { void handleKeyboardAction(event); }}>
       <div className="editor-command-row" role="toolbar" aria-label="Editor formatting commands">
         {EDITOR_COMMANDS.map((command) => (
@@ -812,76 +831,6 @@ export function TipTapEditor({
         {hierarchyHint.hintText}
       </p>
 
-      {slashMatch && commandItems.length > 0 ? (
-        <div className="editor-flyout" role="listbox" aria-label="Slash commands">
-          {commandItems.map((command, index) => (
-            <button
-              key={`slash-${command.id}`}
-              type="button"
-              role="option"
-              aria-selected={index === slashSelectedIndex}
-              className={`editor-flyout-option${index === slashSelectedIndex ? " selected" : ""}`}
-              onMouseDown={(event) => {
-                event.preventDefault();
-                runCommand(command.id, { from: slashMatch.from, to: slashMatch.to });
-              }}
-            >
-              {command.label}
-            </button>
-          ))}
-        </div>
-      ) : null}
-
-      {blockRefMatch ? (
-        <div className="editor-flyout" role="listbox" aria-label="Block references">
-          {blockRefLoading ? <p className="editor-flyout-loading">Searching blocks...</p> : null}
-          {!blockRefLoading && blockRefSuggestions.length === 0 ? (
-            <p className="editor-flyout-loading">No matching blocks</p>
-          ) : null}
-          {!blockRefLoading
-            ? blockRefSuggestions.map((suggestion, index) => (
-                <button
-                  key={`${suggestion.noteId}:${suggestion.blockUid}`}
-                  type="button"
-                  role="option"
-                  aria-selected={index === blockRefSelectedIndex}
-                  className={`editor-flyout-option${index === blockRefSelectedIndex ? " selected" : ""}`}
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    applyBlockRef(suggestion);
-                  }}
-                >
-                  <span>{suggestion.noteTitle}</span>
-                  <small>{suggestion.contentText.slice(0, 72)}</small>
-                </button>
-              ))
-            : null}
-        </div>
-      ) : null}
-
-      {wikiMatch ? (
-        <div className="editor-flyout" role="listbox" aria-label="Wiki links">
-          {wikiLoading ? <p className="editor-flyout-loading">Loading links...</p> : null}
-          {!wikiLoading && wikiOptions.length === 0 ? <p className="editor-flyout-loading">No matching notes</p> : null}
-          {!wikiLoading
-            ? wikiOptions.map((option, index) => (
-                <button
-                  key={`${option.kind}-${option.title}`}
-                  type="button"
-                  role="option"
-                  aria-selected={index === wikiSelectedIndex}
-                  className={`editor-flyout-option${index === wikiSelectedIndex ? " selected" : ""}`}
-                  onMouseDown={(event) => {
-                    event.preventDefault();
-                    void applyWikiLink(option);
-                  }}
-                >
-                  {option.kind === "create" ? `Create "${option.title}"` : option.title}
-                </button>
-              ))
-            : null}
-        </div>
-      ) : null}
 
       {paletteOpen ? (
         <div className="editor-palette" aria-label="Command palette">
@@ -938,5 +887,103 @@ export function TipTapEditor({
         placeholder={mathMode === "inline" ? "x^2 + y^2" : "\\int_0^1 x \\, dx"}
       />
     </div>
+
+    {slashMatch && menuAnchor && commandItems.length > 0
+      ? createPortal(
+          <div
+            className="editor-flyout editor-flyout--anchored"
+            role="listbox"
+            aria-label="Slash commands"
+            style={{ position: "fixed", left: menuAnchor.x, top: menuAnchor.y + 6 }}
+          >
+            {commandItems.map((command, index) => (
+              <button
+                key={`slash-${command.id}`}
+                type="button"
+                role="option"
+                aria-selected={index === slashSelectedIndex}
+                className={`editor-flyout-option${index === slashSelectedIndex ? " selected" : ""}`}
+                onMouseDown={(event) => {
+                  event.preventDefault();
+                  runCommand(command.id, { from: slashMatch.from, to: slashMatch.to });
+                }}
+              >
+                {command.label}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )
+      : null}
+
+    {blockRefMatch && menuAnchor
+      ? createPortal(
+          <div
+            className="editor-flyout editor-flyout--anchored"
+            role="listbox"
+            aria-label="Block references"
+            style={{ position: "fixed", left: menuAnchor.x, top: menuAnchor.y + 6 }}
+          >
+            {blockRefLoading ? <p className="editor-flyout-loading">Searching blocks...</p> : null}
+            {!blockRefLoading && blockRefSuggestions.length === 0 ? (
+              <p className="editor-flyout-loading">No matching blocks</p>
+            ) : null}
+            {!blockRefLoading
+              ? blockRefSuggestions.map((suggestion, index) => (
+                  <button
+                    key={`${suggestion.noteId}:${suggestion.blockUid}`}
+                    type="button"
+                    role="option"
+                    aria-selected={index === blockRefSelectedIndex}
+                    className={`editor-flyout-option${index === blockRefSelectedIndex ? " selected" : ""}`}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      applyBlockRef(suggestion);
+                    }}
+                  >
+                    <span>{suggestion.noteTitle}</span>
+                    <small>{suggestion.contentText.slice(0, 72)}</small>
+                  </button>
+                ))
+              : null}
+          </div>,
+          document.body,
+        )
+      : null}
+
+    {wikiMatch && menuAnchor
+      ? createPortal(
+          <div
+            className="editor-flyout editor-flyout--anchored"
+            role="listbox"
+            aria-label="Wiki links"
+            style={{ position: "fixed", left: menuAnchor.x, top: menuAnchor.y + 6 }}
+          >
+            {wikiLoading ? <p className="editor-flyout-loading">Loading links...</p> : null}
+            {!wikiLoading && wikiOptions.length === 0 ? (
+              <p className="editor-flyout-loading">No matching notes</p>
+            ) : null}
+            {!wikiLoading
+              ? wikiOptions.map((option, index) => (
+                  <button
+                    key={`${option.kind}-${option.title}`}
+                    type="button"
+                    role="option"
+                    aria-selected={index === wikiSelectedIndex}
+                    className={`editor-flyout-option${index === wikiSelectedIndex ? " selected" : ""}`}
+                    onMouseDown={(event) => {
+                      event.preventDefault();
+                      void applyWikiLink(option);
+                    }}
+                  >
+                    {option.kind === "create" ? `Create "${option.title}"` : option.title}
+                  </button>
+                ))
+              : null}
+          </div>,
+          document.body,
+        )
+      : null}
+    </>
   );
 }
