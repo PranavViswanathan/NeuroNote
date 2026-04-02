@@ -789,34 +789,6 @@ export function TipTapEditor({
   return (
     <>
     <div className="tiptap-container" onKeyDown={(event) => { void handleKeyboardAction(event); }}>
-      <div className="editor-command-row" role="toolbar" aria-label="Editor formatting commands">
-        {EDITOR_COMMANDS.map((command) => (
-          <button
-            key={command.id}
-            type="button"
-            className="editor-command-button"
-            onClick={() => runCommand(command.id)}
-            disabled={disabled}
-            aria-label={command.label}
-          >
-            {command.label}
-          </button>
-        ))}
-        <button
-          type="button"
-          className="editor-command-button"
-          onClick={() => {
-            setPaletteOpen(true);
-            setPaletteQuery("");
-            setPaletteSelectedIndex(0);
-            setSlashMatch(null);
-          }}
-          disabled={disabled}
-          aria-label="Open commands"
-        >
-          Commands
-        </button>
-      </div>
       <input
         ref={imageInputRef}
         type="file"

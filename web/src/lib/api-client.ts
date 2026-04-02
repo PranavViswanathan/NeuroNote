@@ -16,7 +16,13 @@ import type {
 } from "../../../shared/contracts/ts/v1/media";
 import type { BacklinksResponse } from "../../../shared/contracts/ts/v1/backlink";
 import type { BlockSearchResponse } from "../../../shared/contracts/ts/v1/block";
-import type { LocalGraphResponse, GlobalGraphResponse } from "../../../shared/contracts/ts/v1/graph";
+import type {
+  LocalGraphResponse,
+  GlobalGraphResponse,
+  ConceptInsightResponse,
+} from "../../../shared/contracts/ts/v1/graph";
+
+const DEFAULT_TIMEOUT_MS = 30_000;
 
 export class ApiClientError extends Error {
   status: number;
@@ -27,6 +33,46 @@ export class ApiClientError extends Error {
     this.name = "ApiClientError";
     this.status = status;
     this.detail = detail;
+  }
+}
+
+function getAuthHeaders(): Record<string, string> {
+  const apiKey =
+    typeof process !== "undefined" ? process.env.NEXT_PUBLIC_API_KEY : undefined;
+  return apiKey ? { "X-Api-Key": apiKey } : {};
+}
+
+/**
+ * fetch wrapper that injects auth headers and enforces a request timeout.
+ * Pass signal: null to opt out of the timeout for a specific call (e.g. long uploads).
+ */
+async function apiFetch(
+  url: string,
+  options: RequestInit & { timeoutMs?: number } = {},
+): Promise<Response> {
+  const { timeoutMs = DEFAULT_TIMEOUT_MS, signal, ...rest } = options;
+
+  let controller: AbortController | null = null;
+  let timeoutId: ReturnType<typeof setTimeout> | null = null;
+  let effectiveSignal: AbortSignal | undefined = signal as AbortSignal | undefined;
+
+  if (timeoutMs > 0) {
+    controller = new AbortController();
+    timeoutId = setTimeout(() => controller!.abort(), timeoutMs);
+    effectiveSignal = controller.signal;
+  }
+
+  try {
+    return await fetch(url, {
+      ...rest,
+      signal: effectiveSignal,
+      headers: {
+        ...getAuthHeaders(),
+        ...(rest.headers as Record<string, string> | undefined),
+      },
+    });
+  } finally {
+    if (timeoutId !== null) clearTimeout(timeoutId);
   }
 }
 
@@ -46,17 +92,19 @@ async function parseJsonResponse<T>(response: Response): Promise<T> {
 export async function saveNote(
   baseUrl: string,
   payload: SaveNoteRequest,
+  signal?: AbortSignal,
 ): Promise<SaveNoteResponse> {
-  const response = await fetch(`${baseUrl}/v1/notes/${payload.note_id}`, {
+  const response = await apiFetch(`${baseUrl}/v1/notes/${payload.note_id}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+    signal,
   });
   return parseJsonResponse<SaveNoteResponse>(response);
 }
 
 export async function getNote(baseUrl: string, noteId: string): Promise<GetNoteResponse> {
-  const response = await fetch(`${baseUrl}/v1/notes/${noteId}`);
+  const response = await apiFetch(`${baseUrl}/v1/notes/${noteId}`);
   return parseJsonResponse<GetNoteResponse>(response);
 }
 
@@ -98,12 +146,12 @@ export async function listNotes(
   }
 
   const suffix = params.toString();
-  const response = await fetch(`${baseUrl}/v1/notes${suffix ? `?${suffix}` : ""}`);
+  const response = await apiFetch(`${baseUrl}/v1/notes${suffix ? `?${suffix}` : ""}`);
   return parseJsonResponse<ListNotesResponse>(response);
 }
 
 export async function deleteNote(baseUrl: string, noteId: string): Promise<void> {
-  const response = await fetch(`${baseUrl}/v1/notes/${noteId}`, { method: "DELETE" });
+  const response = await apiFetch(`${baseUrl}/v1/notes/${noteId}`, { method: "DELETE" });
   if (!response.ok) {
     throw new ApiClientError(response.status);
   }
@@ -113,7 +161,7 @@ export async function queueNoteProcessing(
   baseUrl: string,
   payload: ProcessNoteRequest,
 ): Promise<ProcessNoteResponse> {
-  const response = await fetch(`${baseUrl}/v1/process-note`, {
+  const response = await apiFetch(`${baseUrl}/v1/process-note`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
@@ -125,7 +173,7 @@ export async function fetchProcessingStatus(
   baseUrl: string,
   jobId: string,
 ): Promise<ProcessStatusResponse> {
-  const response = await fetch(`${baseUrl}/v1/process-status/${jobId}`);
+  const response = await apiFetch(`${baseUrl}/v1/process-status/${jobId}`);
   return parseJsonResponse<ProcessStatusResponse>(response);
 }
 
@@ -146,23 +194,24 @@ export async function uploadNoteImage(
     content_base64: btoa(binary),
   };
 
-  const response = await fetch(`${baseUrl}/v1/media/uploads`, {
+  const response = await apiFetch(`${baseUrl}/v1/media/uploads`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
+    timeoutMs: 60_000, // uploads can take longer
   });
   return parseJsonResponse<UploadImageResponse>(response);
 }
 
 export async function deleteNoteImage(baseUrl: string, assetId: string): Promise<DeleteImageResponse> {
-  const response = await fetch(`${baseUrl}/v1/media/${assetId}`, {
+  const response = await apiFetch(`${baseUrl}/v1/media/${assetId}`, {
     method: "DELETE",
   });
   return parseJsonResponse<DeleteImageResponse>(response);
 }
 
 export async function exportNoteMarkdown(baseUrl: string, noteId: string): Promise<Blob> {
-  const response = await fetch(`${baseUrl}/v1/notes/${noteId}/export/markdown`);
+  const response = await apiFetch(`${baseUrl}/v1/notes/${noteId}/export/markdown`);
   if (!response.ok) {
     throw new ApiClientError(response.status);
   }
@@ -173,7 +222,7 @@ export async function fetchNoteBacklinks(
   baseUrl: string,
   noteId: string,
 ): Promise<BacklinksResponse> {
-  const response = await fetch(`${baseUrl}/v1/notes/${noteId}/backlinks`);
+  const response = await apiFetch(`${baseUrl}/v1/notes/${noteId}/backlinks`);
   return parseJsonResponse<BacklinksResponse>(response);
 }
 
@@ -188,7 +237,7 @@ export async function searchBlocks(
     params.set("note_id", options.note_id);
   }
   params.set("limit", String(options.limit ?? 8));
-  const response = await fetch(`${baseUrl}/v1/blocks/search?${params.toString()}`);
+  const response = await apiFetch(`${baseUrl}/v1/blocks/search?${params.toString()}`);
   return parseJsonResponse<BlockSearchResponse>(response);
 }
 
@@ -219,10 +268,26 @@ export async function fetchLocalGraph(
   }
 
   const suffix = params.toString();
-  const response = await fetch(
+  const response = await apiFetch(
     `${baseUrl}/v1/graph/local/${noteId}${suffix ? `?${suffix}` : ""}`,
+    { timeoutMs: 60_000 }, // graph requests can be slow on cold cache
   );
   return parseJsonResponse<LocalGraphResponse>(response);
+}
+
+export async function fetchConceptInsight(
+  baseUrl: string,
+  label: string,
+  limitNotes = 10,
+): Promise<ConceptInsightResponse> {
+  const params = new URLSearchParams();
+  params.set("label", label);
+  params.set("limit_notes", String(limitNotes));
+  const response = await apiFetch(
+    `${baseUrl}/v1/concepts/insight?${params.toString()}`,
+    { timeoutMs: 30_000 },
+  );
+  return parseJsonResponse<ConceptInsightResponse>(response);
 }
 
 interface GlobalGraphQuery {
@@ -240,6 +305,9 @@ export async function fetchGlobalGraph(
   if (query.min_confidence !== undefined) params.set("min_confidence", String(query.min_confidence));
   if (query.include_types && query.include_types.length > 0) params.set("include_types", query.include_types.join(","));
   const suffix = params.toString();
-  const response = await fetch(`${baseUrl}/v1/graph/global${suffix ? `?${suffix}` : ""}`);
+  const response = await apiFetch(
+    `${baseUrl}/v1/graph/global${suffix ? `?${suffix}` : ""}`,
+    { timeoutMs: 60_000 },
+  );
   return parseJsonResponse<GlobalGraphResponse>(response);
 }

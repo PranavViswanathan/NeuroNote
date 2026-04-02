@@ -37,6 +37,7 @@ class GraphSyncPayload:
     resolved_entities: dict[str, CanonicalEntityMapping]
     embedding: list[float] | None
     entity_mentions: list[ExtractedEntityMention]
+    note_summary: str = ""
 
 
 def _utc_now_iso() -> str:
@@ -44,6 +45,36 @@ def _utc_now_iso() -> str:
 
 
 class GraphSyncService:
+    """Synchronises NLP extraction results into the Apache AGE property graph.
+
+    **Algorithm — delete-and-replace:**
+    On every call to :meth:`sync`, all AGE nodes and edges whose ``source_note_id``
+    matches the note being processed are deleted first.  The full set of nodes and
+    edges is then re-created from the current extraction payload.  This guarantees
+    idempotency: re-running sync for the same note (e.g. after a schema migration or
+    a content edit) always produces a consistent graph state.
+
+    **Graph schema:**
+
+    Nodes
+        - ``Note``     — one per note; id = ``note_id``
+        - ``Subject``  — one per subject/notebook
+        - ``Block``    — one per TipTap block; id = ``{note_id}:block:{block_uid}``
+        - ``Entity``   — concept or named entity; id = ``concept-{slug}``
+        - ``Keyphrase``— extracted key phrase
+        - ``Relation`` — reified relation node when a typed relation is extracted
+
+    Edges
+        - ``BELONGS_TO`` — Note → Subject
+        - ``CONTAINS``   — Note → Block
+        - ``HAS_PARENT`` — Block → Block (tree hierarchy)
+        - ``MENTIONS``   — Block → Entity; carries ``mention_text``, ``start_offset``,
+                          ``end_offset``, ``source_note_id`` for provenance
+        - ``LINKS_TO``   — Note → Note (wiki-link)
+        - ``RELATED_TO`` — Note → Entity (keyphrases, resolved entities)
+        - ``SUBJECT_OF`` / ``OBJECT_OF`` — for reified Relation nodes
+    """
+
     def __init__(
         self,
         *,
@@ -85,16 +116,19 @@ class GraphSyncService:
             },
             graph_name=self._graph_name,
         )
+        note_props: dict[str, object] = {
+            "name": payload.note_title,
+            "source_note_id": payload.note_id,
+            "content_hash": payload.content_hash,
+            "updated_at": payload.updated_at,
+            "created_at": now_iso,
+        }
+        if payload.note_summary:
+            note_props["summary"] = payload.note_summary
         self._repository.upsert_node(
             label="Note",
             node_id=payload.note_id,
-            properties={
-                "name": payload.note_title,
-                "source_note_id": payload.note_id,
-                "content_hash": payload.content_hash,
-                "updated_at": payload.updated_at,
-                "created_at": now_iso,
-            },
+            properties=note_props,
             graph_name=self._graph_name,
         )
         self._repository.upsert_typed_edge(
@@ -115,26 +149,28 @@ class GraphSyncService:
         blocks = self._iter_blocks(payload.note_id)
         block_node_ids_by_index: dict[int, str] = {}
         block_node_ids_by_uid: dict[str, str] = {}
+        block_node_props: list[dict[str, object]] = []
         for block in blocks:
             block_node_id = self._block_node_id(note_id=payload.note_id, block_uid=block.block_uid)
             block_node_ids_by_index[block.block_index] = block_node_id
             block_node_ids_by_uid[block.block_uid] = block_node_id
-            self._repository.upsert_node(
-                label="Block",
-                node_id=block_node_id,
-                properties={
-                    "block_uid": block.block_uid,
-                    "parent_block_uid": block.parent_block_uid,
-                    "sibling_order": block.sibling_order,
-                    "block_index": block.block_index,
-                    "content_hash": block.content_hash,
-                    "text": block.content_text,
-                    "source_note_id": payload.note_id,
-                    "created_at": now_iso,
-                    "updated_at": now_iso,
-                },
-                graph_name=self._graph_name,
-            )
+            block_node_props.append({
+                "id": block_node_id,
+                "block_uid": block.block_uid,
+                "parent_block_uid": block.parent_block_uid,
+                "sibling_order": block.sibling_order,
+                "block_index": block.block_index,
+                "content_hash": block.content_hash,
+                "text": block.content_text,
+                "source_note_id": payload.note_id,
+                "created_at": now_iso,
+                "updated_at": now_iso,
+            })
+        self._repository.upsert_nodes_batch(
+            label="Block",
+            nodes=block_node_props,
+            graph_name=self._graph_name,
+        )
 
         for block in blocks:
             block_node_id = block_node_ids_by_uid[block.block_uid]
@@ -182,17 +218,23 @@ class GraphSyncService:
     ) -> None:
         entity_by_id = {entity.entity_id: entity for entity in payload.entities}
 
+        # Batch all Concept node upserts into a single AGE UNWIND query
+        concept_node_props: list[dict[str, object]] = [
+            {
+                "id": keyphrase.phrase_id,
+                "name": keyphrase.text,
+                "score": keyphrase.score,
+                "updated_at": now_iso,
+            }
+            for keyphrase in payload.keyphrases
+        ]
+        self._repository.upsert_nodes_batch(
+            label="Concept",
+            nodes=concept_node_props,
+            graph_name=self._graph_name,
+        )
+
         for keyphrase in payload.keyphrases:
-            self._repository.upsert_node(
-                label="Concept",
-                node_id=keyphrase.phrase_id,
-                properties={
-                    "name": keyphrase.text,
-                    "score": keyphrase.score,
-                    "updated_at": now_iso,
-                },
-                graph_name=self._graph_name,
-            )
             self._repository.upsert_typed_edge(
                 source_label="Concept",
                 source_id=keyphrase.phrase_id,
@@ -228,20 +270,22 @@ class GraphSyncService:
                     graph_name=self._graph_name,
                 )
 
+        entity_node_props: list[dict[str, object]] = []
         for entity in payload.entities:
             resolved = payload.resolved_entities.get(entity.entity_id)
             canonical_id = resolved.canonical_entity_id if resolved is not None else entity.entity_id
             canonical_name = resolved.canonical_name if resolved is not None else entity.text
-            self._repository.upsert_node(
-                label="Entity",
-                node_id=canonical_id,
-                properties={
-                    "name": canonical_name,
-                    "kind": entity.label,
-                    "updated_at": now_iso,
-                },
-                graph_name=self._graph_name,
-            )
+            entity_node_props.append({
+                "id": canonical_id,
+                "name": canonical_name,
+                "kind": entity.label,
+                "updated_at": now_iso,
+            })
+        self._repository.upsert_nodes_batch(
+            label="Entity",
+            nodes=entity_node_props,
+            graph_name=self._graph_name,
+        )
 
         seen_mentions: set[tuple[str, str, int, int]] = set()
         for mention in payload.entity_mentions:
@@ -282,6 +326,39 @@ class GraphSyncService:
                     "mention_text": mention.mention_text,
                     "start_offset": int(mention.start_offset),
                     "end_offset": int(mention.end_offset),
+                    "created_at": now_iso,
+                    "updated_at": now_iso,
+                },
+                graph_name=self._graph_name,
+            )
+
+        # Aggregate block-level mentions to Note→Entity edges (max confidence per entity).
+        # This stores confidence directly on Note→Entity in AGE so future graph queries
+        # can read it without re-running NLP.
+        note_entity_max_conf: dict[str, float] = {}
+        for mention in payload.entity_mentions:
+            source_entity = entity_by_id.get(mention.entity_id)
+            if source_entity is None:
+                continue
+            resolved = payload.resolved_entities.get(source_entity.entity_id)
+            canonical_id = resolved.canonical_entity_id if resolved is not None else source_entity.entity_id
+            conf = float(source_entity.confidence)
+            if resolved is not None:
+                conf = max(conf, float(resolved.confidence))
+            conf = max(conf, float(mention.confidence))
+            if canonical_id not in note_entity_max_conf or conf > note_entity_max_conf[canonical_id]:
+                note_entity_max_conf[canonical_id] = conf
+
+        for canonical_id, best_conf in note_entity_max_conf.items():
+            self._repository.upsert_typed_edge(
+                source_label="Note",
+                source_id=payload.note_id,
+                target_label="Entity",
+                target_id=canonical_id,
+                relation_type="MENTIONS",
+                properties={
+                    "source_note_id": payload.note_id,
+                    "confidence": best_conf,
                     "created_at": now_iso,
                     "updated_at": now_iso,
                 },
@@ -347,12 +424,16 @@ class GraphSyncService:
                 )
 
     def _upsert_relations(self, *, payload: GraphSyncPayload, now_iso: str) -> None:
+        _TYPED_RELATIONS = frozenset(
+            {"IS_A", "PART_OF", "CAUSES", "CONTRASTS_WITH", "USES", "PRODUCES", "RELATED_TO"}
+        )
         for relation in payload.relations:
             self._repository.upsert_node(
                 label="Concept",
                 node_id=relation.subject_id,
                 properties={
                     "name": relation.subject_text,
+                    "canonical_form": relation.subject_text,
                     "updated_at": now_iso,
                 },
                 graph_name=self._graph_name,
@@ -362,16 +443,18 @@ class GraphSyncService:
                 node_id=relation.object_id,
                 properties={
                     "name": relation.object_text,
+                    "canonical_form": relation.object_text,
                     "updated_at": now_iso,
                 },
                 graph_name=self._graph_name,
             )
+            edge_type = relation.predicate if relation.predicate in _TYPED_RELATIONS else "RELATED_TO"
             self._repository.upsert_typed_edge(
                 source_label="Concept",
                 source_id=relation.subject_id,
                 target_label="Concept",
                 target_id=relation.object_id,
-                relation_type="RELATED_TO",
+                relation_type=edge_type,
                 properties={
                     "source_note_id": payload.note_id,
                     "confidence": float(relation.confidence),

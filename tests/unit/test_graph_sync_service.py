@@ -41,6 +41,9 @@ def test_graph_sync_collapses_relation_edges_to_related_to(
         def upsert_node(self, **_kwargs) -> None:
             return
 
+        def upsert_nodes_batch(self, **_kwargs) -> None:
+            return
+
         def upsert_typed_edge(self, **kwargs) -> None:
             if kwargs["source_label"] == "Concept" and kwargs["target_label"] == "Concept":
                 captured_relation_types.append(str(kwargs["relation_type"]))
@@ -111,6 +114,9 @@ def test_graph_sync_uses_entity_mentions_evidence_for_block_edges(
             return
 
         def upsert_node(self, **_kwargs) -> None:
+            return
+
+        def upsert_nodes_batch(self, **_kwargs) -> None:
             return
 
         def upsert_typed_edge(self, **kwargs) -> None:
@@ -213,6 +219,9 @@ def test_graph_sync_emits_refers_to_edges_from_block_tokens(
         def upsert_node(self, **_kwargs) -> None:
             return
 
+        def upsert_nodes_batch(self, **_kwargs) -> None:
+            return
+
         def upsert_typed_edge(self, **kwargs) -> None:
             if kwargs["relation_type"] == "REFERS_TO":
                 captured_ref_edges.append((str(kwargs["source_id"]), str(kwargs["target_id"])))
@@ -308,6 +317,9 @@ def test_graph_sync_emits_refers_to_edges_from_reference_link_marks(
             return
 
         def upsert_node(self, **_kwargs) -> None:
+            return
+
+        def upsert_nodes_batch(self, **_kwargs) -> None:
             return
 
         def upsert_typed_edge(self, **kwargs) -> None:

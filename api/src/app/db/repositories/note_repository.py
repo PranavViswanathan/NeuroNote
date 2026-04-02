@@ -104,12 +104,14 @@ class NoteRepository:
 
     def _assert_unique_title_for_note(self, *, note_id: str, note_title: str) -> None:
         normalized_key = self._normalize_title_key(note_title)
-        rows = self._session.execute(
-            select(Note.note_id, Note.note_title).where(Note.note_id != note_id),
-        ).all()
-        for _existing_note_id, existing_title in rows:
-            if self._normalize_title_key(str(existing_title)) == normalized_key:
-                raise NoteTitleConflictError(self._normalize_title(note_title))
+        conflict = self._session.execute(
+            select(Note.note_id).where(
+                Note.note_id != note_id,
+                func.lower(Note.note_title) == normalized_key,
+            ).limit(1),
+        ).first()
+        if conflict is not None:
+            raise NoteTitleConflictError(self._normalize_title(note_title))
 
     def _iter_wiki_link_titles(self, content_text: str) -> list[str]:
         titles: list[str] = []
@@ -376,14 +378,22 @@ class NoteRepository:
         if not normalized_target_title:
             return []
 
+        # Use a LIKE filter to pre-filter notes containing [[...target_title...]] without
+        # a full table scan. Spaces are replaced with % to tolerate non-normalised whitespace
+        # in stored content (e.g. [[Graph   Reasoning]] still matches "graph reasoning").
+        # False positives survive to the Python-side exact-match check below.
+        word_fragment = "%".join(normalized_target_key.split())
+        wiki_link_pattern = f"%[[%{word_fragment}%]]%"
         rows = self._session.execute(
             select(Note.note_id, Note.note_title, Note.content_text, Note.updated_at).where(
-                Note.note_id != note_id
+                Note.note_id != note_id,
+                func.lower(Note.content_text).like(wiki_link_pattern),
             ),
         ).all()
 
         backlinks: list[BacklinkRecord] = []
         for source_note_id, source_note_title, source_content_text, source_updated_at in rows:
+            # Confirm the LIKE hit is an actual wiki-link (not a false positive substring).
             linked_titles = {
                 title.lower() for title in self._iter_wiki_link_titles(str(source_content_text))
             }

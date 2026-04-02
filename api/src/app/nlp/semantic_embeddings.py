@@ -1,0 +1,60 @@
+"""Real semantic embeddings via sentence-transformers.
+
+Uses all-MiniLM-L6-v2 (22 MB, 384 dimensions) which produces genuine semantic
+vectors — cosine similarity reflects actual meaning similarity.
+
+Produces the same 384-dimension output as the hash-based embedder so no DB
+schema migration is needed.
+
+Falls back gracefully if sentence-transformers is not installed.
+"""
+from __future__ import annotations
+
+import logging
+
+_LOGGER = logging.getLogger(__name__)
+_MODEL_NAME = "all-MiniLM-L6-v2"
+
+
+class SemanticEmbedder:
+    """Lazy singleton wrapper around the sentence-transformers model."""
+
+    _instance: object | None = None
+
+    @classmethod
+    def get(cls) -> object | None:
+        if cls._instance is not None:
+            return cls._instance
+
+        try:
+            from sentence_transformers import SentenceTransformer  # type: ignore[import-not-found]
+
+            cls._instance = SentenceTransformer(_MODEL_NAME)
+            _LOGGER.info("Loaded semantic embedding model: %s", _MODEL_NAME)
+        except ImportError:
+            _LOGGER.debug("sentence-transformers not installed; semantic embeddings unavailable")
+        except Exception as exc:
+            _LOGGER.warning("Failed to load embedding model %s: %s", _MODEL_NAME, exc)
+
+        return cls._instance
+
+
+def build_semantic_embedding(text: str) -> list[float] | None:
+    """Encode *text* using the sentence-transformer model.
+
+    Returns a normalised 384-dimensional float list, or None if the model
+    could not be loaded so the pipeline can fall back to the hash embedder.
+    """
+    model = SemanticEmbedder.get()
+    if model is None:
+        return None
+
+    try:
+        vector = model.encode(text, normalize_embeddings=True)  # type: ignore[union-attr]
+        return vector.tolist()
+    except Exception as exc:
+        _LOGGER.warning("Semantic embedding failed: %s", exc)
+        return None
+
+
+__all__ = ["SemanticEmbedder", "build_semantic_embedding"]

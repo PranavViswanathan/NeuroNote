@@ -52,3 +52,24 @@ export interface GlobalGraphResponse {
   edges: LocalGraphEdge[];
   meta: GlobalGraphMeta;
 }
+
+export interface ConceptNoteRef {
+  note_id: string;
+  note_title: string;
+  snippet: string;
+}
+
+export interface ConceptLearningLink {
+  title: string;
+  url: string;
+  description: string;
+}
+
+export interface ConceptInsightResponse {
+  concept_label: string;
+  notes_found: number;
+  note_refs: ConceptNoteRef[];
+  insight: string | null;
+  learning_links: ConceptLearningLink[];
+  generated_at: string;
+}

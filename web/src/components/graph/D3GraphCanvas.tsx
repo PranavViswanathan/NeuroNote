@@ -16,6 +16,8 @@ interface D3GraphCanvasProps {
   ariaLabel?: string;
 }
 
+const MAX_RENDER_NODES = 300;
+
 type SimNode = LocalGraphNode & d3.SimulationNodeDatum;
 
 type SimEdge = Omit<LocalGraphEdge, "source" | "target"> &
@@ -50,8 +52,25 @@ export function D3GraphCanvas({
     const rect = svgRef.current.getBoundingClientRect();
     const width = widthProp ?? (rect.width > 0 ? rect.width : 800);
 
-    const simNodes: SimNode[] = nodes.map((n) => ({ ...n }));
-    const simEdges: SimEdge[] = edges.map((e) => ({ ...e }));
+    // Cap node count to avoid pegging the CPU on very large graphs.
+    // Retain the highest-connected nodes so the most relevant structure is visible.
+    let renderNodes = nodes;
+    let renderEdges = edges;
+    if (nodes.length > MAX_RENDER_NODES) {
+      const edgeDegree = new Map<string, number>();
+      for (const e of edges) {
+        edgeDegree.set(e.source, (edgeDegree.get(e.source) ?? 0) + 1);
+        edgeDegree.set(e.target, (edgeDegree.get(e.target) ?? 0) + 1);
+      }
+      renderNodes = [...nodes]
+        .sort((a, b) => (edgeDegree.get(b.id) ?? 0) - (edgeDegree.get(a.id) ?? 0))
+        .slice(0, MAX_RENDER_NODES);
+      const visibleIds = new Set(renderNodes.map((n) => n.id));
+      renderEdges = edges.filter((e) => visibleIds.has(e.source) && visibleIds.has(e.target));
+    }
+
+    const simNodes: SimNode[] = renderNodes.map((n) => ({ ...n }));
+    const simEdges: SimEdge[] = renderEdges.map((e) => ({ ...e }));
     simNodesRef.current = simNodes; // D3 mutates these in-place; ref stays current
 
     const svg = d3.select(svgRef.current);
@@ -104,8 +123,13 @@ export function D3GraphCanvas({
       if (original) onNodeClick(original);
     });
 
+    // Cool the simulation faster when there are many nodes to avoid long CPU spikes.
+    // Default alphaDecay ≈ 0.0228 (~300 ticks); scale up for larger graphs.
+    const alphaDecay = simNodes.length > 150 ? 0.05 : 0.0228;
+
     const simulation = d3
       .forceSimulation<SimNode>(simNodes)
+      .alphaDecay(alphaDecay)
       .force(
         "link",
         d3.forceLink<SimNode, SimEdge>(simEdges).id((d) => d.id).distance(90),

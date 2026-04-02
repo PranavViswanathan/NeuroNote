@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 
 import { D3GraphCanvas } from "./D3GraphCanvas";
-import type { GlobalGraphResponse } from "../../../../shared/contracts/ts/v1/graph";
+import { ConceptInsightPanel } from "./ConceptInsightPanel";
+import type { GlobalGraphResponse, LocalGraphNode } from "../../../../shared/contracts/ts/v1/graph";
 import { SkeletonGraph } from "../ui/Skeleton";
 import { EmptyState } from "../ui/EmptyState";
 import { ErrorMessage } from "../ui/ErrorMessage";
@@ -14,6 +15,7 @@ export interface GlobalGraphFilterState {
 }
 
 interface GlobalGraphPanelProps {
+  baseUrl: string;
   graph: GlobalGraphResponse | null;
   filters: GlobalGraphFilterState;
   isLoading: boolean;
@@ -24,6 +26,7 @@ interface GlobalGraphPanelProps {
 }
 
 export function GlobalGraphPanel({
+  baseUrl,
   graph,
   filters,
   isLoading,
@@ -32,6 +35,15 @@ export function GlobalGraphPanel({
   onFiltersChange,
   onOpenNote,
 }: GlobalGraphPanelProps) {
+  const [insightNode, setInsightNode] = useState<LocalGraphNode | null>(null);
+
+  function handleNodeClick(node: LocalGraphNode) {
+    if (node.type === "note") {
+      onOpenNote(String(node.metadata.note_id ?? node.id));
+    } else {
+      setInsightNode(node);
+    }
+  }
   const [nodeSearch, setNodeSearch] = useState("");
   const [canvasWidth, setCanvasWidth] = useState(800);
   const [canvasHeight, setCanvasHeight] = useState(600);
@@ -137,12 +149,22 @@ export function GlobalGraphPanel({
             highlightNodeId={highlightNodeId}
             width={canvasWidth}
             height={canvasHeight}
-            onNodeClick={(node) => {
-              if (node.type === "note") onOpenNote(String(node.metadata.note_id ?? node.id));
-            }}
+            onNodeClick={handleNodeClick}
           />
         )}
       </div>
+
+      {insightNode && (
+        <ConceptInsightPanel
+          node={insightNode}
+          baseUrl={baseUrl}
+          onClose={() => setInsightNode(null)}
+          onOpenNote={(noteId) => {
+            onOpenNote(noteId);
+            setInsightNode(null);
+          }}
+        />
+      )}
     </div>
   );
 }

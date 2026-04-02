@@ -13,6 +13,8 @@ import { EmptyState } from "../ui/EmptyState";
 import { ErrorMessage } from "../ui/ErrorMessage";
 import { KeyboardShortcutsModal } from "../ui/KeyboardShortcutsModal";
 import { TemplateGallery } from "../templates/TemplateGallery";
+import { FilterCombobox } from "../ui/FilterCombobox";
+import { HelpWidget } from "../ui/HelpWidget";
 import { applyTemplate, type Template } from "../../lib/templates";
 import {
   ApiClientError,
@@ -155,6 +157,62 @@ function toDisplayDate(value: string): string {
     month: "short",
     day: "numeric",
   });
+}
+
+function NewNoteButton({
+  disabled,
+  onCreate,
+  onTemplate,
+}: {
+  disabled: boolean;
+  onCreate: () => void;
+  onTemplate: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleOutside(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    }
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [open]);
+
+  return (
+    <div ref={ref} className="new-note-split">
+      <button
+        type="button"
+        className="btn btn-primary btn-sm new-note-split-main"
+        onClick={onCreate}
+        disabled={disabled}
+      >
+        + New note
+      </button>
+      <button
+        type="button"
+        className="btn btn-primary btn-sm new-note-split-arrow"
+        onClick={() => setOpen((prev) => !prev)}
+        disabled={disabled}
+        aria-label="More create options"
+        aria-expanded={open}
+      >
+        ▾
+      </button>
+      {open && (
+        <div className="new-note-split-dropdown">
+          <button
+            type="button"
+            className="new-note-split-option"
+            onClick={() => { onTemplate(); setOpen(false); }}
+          >
+            From template
+          </button>
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) {
@@ -1086,6 +1144,7 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
 
       {appView === "graph" ? (
         <GlobalGraphPanel
+          baseUrl={baseUrl}
           graph={globalGraph}
           filters={globalGraphFilters}
           isLoading={globalGraphLoading}
@@ -1118,12 +1177,11 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
             >
               {selectionMode ? "Cancel" : "Select"}
             </button>
-            <button type="button" className="editor-command-button" onClick={() => setTemplateGalleryOpen(true)} disabled={isCreatingNote}>
-              From template
-            </button>
-            <button type="button" className="btn btn-primary btn-sm" onClick={() => void handleCreateNote()} disabled={isCreatingNote}>
-              + New note
-            </button>
+            <NewNoteButton
+              disabled={isCreatingNote}
+              onCreate={() => void handleCreateNote()}
+              onTemplate={() => setTemplateGalleryOpen(true)}
+            />
           </div>
         </header>
 
@@ -1165,26 +1223,18 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
               onChange={(event) => setSearch(event.target.value)}
             />
           </label>
-          <label className="notes-filter-label">
-            Subject filter
-            <input
-              aria-label="Subject filter"
-              className="notes-filter-input"
-              type="text"
-              value={subjectFilter}
-              onChange={(event) => setSubjectFilter(event.target.value)}
-            />
-          </label>
-          <label className="notes-filter-label">
-            Tag filter
-            <input
-              aria-label="Tag filter"
-              className="notes-filter-input"
-              type="text"
-              value={tagFilter}
-              onChange={(event) => setTagFilter(event.target.value)}
-            />
-          </label>
+          <FilterCombobox
+            label="Subject"
+            value={subjectFilter}
+            onChange={setSubjectFilter}
+            options={availableSubjects}
+          />
+          <FilterCombobox
+            label="Tag"
+            value={tagFilter}
+            onChange={setTagFilter}
+            options={availableTags}
+          />
           <label className="notes-toggle-filter">
             <input
               aria-label="Show archived"
@@ -1530,6 +1580,7 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
           void handleCreateNoteFromTemplate(template);
         }}
       />
+      <HelpWidget />
     </div>
   );
 }

@@ -4,9 +4,10 @@ from dataclasses import dataclass
 import hashlib
 import re
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.core.graph_cache import get_cached, get_note_version, set_cached
 from app.db.models.block import Block
 from app.db.models.note import Note
 from app.db.repositories.entity_alias_repository import EntityAliasRepository
@@ -68,33 +69,88 @@ class LocalGraphService:
             return ["note", "entity", "relation"]
         return normalized
 
-    def _list_notes(self) -> list[_NoteSnapshot]:
+    def _fetch_reachable_notes(self, seed_id: str, max_hops: int) -> list[_NoteSnapshot]:
+        """Load only notes reachable from seed_id within max_hops via wiki-links.
+
+        Outgoing links are resolved with a targeted SQL fetch by normalized title.
+        Incoming links (notes that link TO a frontier note) are found with a
+        per-hop ILIKE scan — still O(n) for incoming, but blocks are never loaded
+        for notes outside the reachable set.
+        """
+        # note_id -> (note_title, content_text)
+        visited: dict[str, tuple[str, str]] = {}
+
+        seed_row = self._session.execute(
+            select(Note.note_id, Note.note_title, Note.content_text).where(Note.note_id == seed_id)
+        ).first()
+        if seed_row is None:
+            return []
+
+        visited[str(seed_row[0])] = (str(seed_row[1]), str(seed_row[2]))
+        frontier_ids: set[str] = {str(seed_row[0])}
+
+        for _hop in range(max_hops):
+            if not frontier_ids:
+                break
+
+            # --- outgoing: SQL fetch by wiki-link title match ---
+            outgoing_titles: set[str] = set()
+            for fid in frontier_ids:
+                _, content = visited[fid]
+                for t in self._extract_wiki_links(content):
+                    outgoing_titles.add(t)
+
+            new_ids: set[str] = set()
+            if outgoing_titles:
+                out_rows = self._session.execute(
+                    select(Note.note_id, Note.note_title, Note.content_text)
+                    .where(func.lower(Note.note_title).in_(list(outgoing_titles)))
+                    .where(Note.note_id.not_in(list(visited.keys())))
+                ).all()
+                for r in out_rows:
+                    nid = str(r[0])
+                    visited[nid] = (str(r[1]), str(r[2]))
+                    new_ids.add(nid)
+
+            # --- incoming: ILIKE scan for notes linking TO frontier notes ---
+            frontier_titles = [self._normalize_title(visited[fid][0]) for fid in frontier_ids]
+            if frontier_titles:
+                like_clauses = [
+                    Note.content_text.ilike(f"%[[{t}]]%") for t in frontier_titles
+                ]
+                in_rows = self._session.execute(
+                    select(Note.note_id, Note.note_title, Note.content_text)
+                    .where(or_(*like_clauses))
+                    .where(Note.note_id.not_in(list(visited.keys())))
+                ).all()
+                for r in in_rows:
+                    nid = str(r[0])
+                    visited[nid] = (str(r[1]), str(r[2]))
+                    new_ids.add(nid)
+
+            frontier_ids = new_ids
+
+        # Load blocks only for the reachable notes
+        visited_ids = list(visited.keys())
         block_rows = self._session.execute(
-            select(Block.note_id, Block.block_index, Block.content_text).order_by(
-                Block.note_id.asc(),
-                Block.block_index.asc(),
-            )
+            select(Block.note_id, Block.block_index, Block.content_text)
+            .where(Block.note_id.in_(visited_ids))
+            .order_by(Block.note_id.asc(), Block.block_index.asc())
         ).all()
         blocks_by_note_id: dict[str, list[BlockTextInput]] = {}
-        for row in block_rows:
-            blocks_by_note_id.setdefault(str(row[0]), []).append(
-                BlockTextInput(
-                    block_index=int(row[1]),
-                    content_text=str(row[2]),
-                )
+        for r in block_rows:
+            blocks_by_note_id.setdefault(str(r[0]), []).append(
+                BlockTextInput(block_index=int(r[1]), content_text=str(r[2]))
             )
 
-        rows = self._session.execute(
-            select(Note.note_id, Note.note_title, Note.content_text).order_by(Note.note_id.asc())
-        ).all()
         return [
             _NoteSnapshot(
-                note_id=str(row[0]),
-                note_title=str(row[1]),
-                content_text=str(row[2]),
-                blocks=list(blocks_by_note_id.get(str(row[0]), [])),
+                note_id=nid,
+                note_title=title,
+                content_text=content,
+                blocks=blocks_by_note_id.get(nid, []),
             )
-            for row in rows
+            for nid, (title, content) in visited.items()
         ]
 
     def _extract_wiki_links(self, content_text: str) -> list[str]:
@@ -142,72 +198,49 @@ class LocalGraphService:
 
     def get_local_graph(self, query: LocalGraphQuery) -> LocalGraphResponse:
         include_types = self._normalize_include_types(query.include_types)
+
+        note_version = get_note_version(self._session, query.note_id)
+        cache_key = (
+            f"local:{query.note_id}:{query.max_hops}:{query.min_confidence}"
+            f":{query.limit_nodes}:{'|'.join(sorted(include_types))}:{note_version}"
+        )
+        cached = get_cached(cache_key)
+        if cached is not None:
+            return cached  # type: ignore[return-value]
+
         include_type_set = set(include_types)
 
-        notes = self._list_notes()
+        notes = self._fetch_reachable_notes(query.note_id, query.max_hops)
         dictionary_terms = self._build_dictionary_terms()
         notes_by_id = {note.note_id: note for note in notes}
-        root_note = notes_by_id.get(query.note_id)
-        if root_note is None:
+        if query.note_id not in notes_by_id:
             raise LocalGraphNoteNotFoundError(f"Note {query.note_id} was not found")
 
-        title_index: dict[str, str] = {}
-        for note in notes:
-            title_index[self._normalize_title(note.note_title)] = note.note_id
+        # Title index is built only from reachable notes; links to out-of-scope
+        # notes simply won't resolve, which is the correct behaviour.
+        title_index: dict[str, str] = {
+            self._normalize_title(note.note_title): note.note_id for note in notes
+        }
+        visited_note_ids: set[str] = set(notes_by_id.keys())
 
-        outgoing_links_by_note: dict[str, list[str]] = {}
-        for indexed_note in notes:
-            outgoing_ids: list[str] = []
-            for linked_title in self._extract_wiki_links(indexed_note.content_text):
-                target_id = title_index.get(linked_title)
-                if target_id is None or target_id == indexed_note.note_id:
-                    continue
-                outgoing_ids.append(target_id)
-            outgoing_links_by_note[indexed_note.note_id] = sorted(set(outgoing_ids))
-
-        incoming_links_by_note: dict[str, list[str]] = {note.note_id: [] for note in notes}
-        for source_id, targets in outgoing_links_by_note.items():
-            for target_id in targets:
-                incoming_links_by_note.setdefault(target_id, []).append(source_id)
-        for note_id in incoming_links_by_note:
-            incoming_links_by_note[note_id] = sorted(set(incoming_links_by_note[note_id]))
-
-        visited_note_ids: set[str] = {query.note_id}
-        frontier: set[str] = {query.note_id}
+        # Build LINKS_TO edges from the reachable set
         edge_map: dict[tuple[str, str, str], LocalGraphEdge] = {}
-
-        def _add_note_link_edge(source_note_id: str, target_note_id: str) -> None:
-            if "relation" not in include_type_set:
-                return
-            key = (source_note_id, target_note_id, "LINKS_TO")
-            if key in edge_map:
-                return
-            edge_map[key] = LocalGraphEdge(
-                id=f"{source_note_id}->LINKS_TO->{target_note_id}",
-                source=source_note_id,
-                target=target_note_id,
-                type="LINKS_TO",
-                confidence=1.0,
-                source_note_id=source_note_id,
-            )
-
-        for _depth in range(query.max_hops):
-            next_frontier: set[str] = set()
-            for note_id in sorted(frontier):
-                for target_id in outgoing_links_by_note.get(note_id, []):
-                    _add_note_link_edge(note_id, target_id)
-                    if target_id not in visited_note_ids:
-                        visited_note_ids.add(target_id)
-                        next_frontier.add(target_id)
-
-                for source_id in incoming_links_by_note.get(note_id, []):
-                    _add_note_link_edge(source_id, note_id)
-                    if source_id not in visited_note_ids:
-                        visited_note_ids.add(source_id)
-                        next_frontier.add(source_id)
-            frontier = next_frontier
-            if not frontier:
-                break
+        if "relation" in include_type_set:
+            for note in notes:
+                for linked_title in self._extract_wiki_links(note.content_text):
+                    target_id = title_index.get(linked_title)
+                    if target_id is None or target_id == note.note_id:
+                        continue
+                    key = (note.note_id, target_id, "LINKS_TO")
+                    if key not in edge_map:
+                        edge_map[key] = LocalGraphEdge(
+                            id=f"{note.note_id}->LINKS_TO->{target_id}",
+                            source=note.note_id,
+                            target=target_id,
+                            type="LINKS_TO",
+                            confidence=1.0,
+                            source_note_id=note.note_id,
+                        )
 
         node_map: dict[str, LocalGraphNode] = {}
         if "note" in include_type_set:
@@ -315,7 +348,7 @@ class LocalGraphService:
             key=lambda item: (item.type, item.source, item.target, item.id),
         )
 
-        return LocalGraphResponse(
+        response = LocalGraphResponse(
             nodes=nodes,
             edges=edges,
             meta=LocalGraphMeta(
@@ -329,3 +362,5 @@ class LocalGraphService:
                 truncated=truncated,
             ),
         )
+        set_cached(cache_key, response)
+        return response

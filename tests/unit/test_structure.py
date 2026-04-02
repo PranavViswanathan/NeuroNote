@@ -139,7 +139,6 @@ REQUIRED_FILES = [
     "web/src/components/graph/LocalGraphPanel.tsx",
     "web/src/components/graph/LocalGraphPanel.test.tsx",
     "web/src/lib/api-client.ts",
-    "web/src/lib/graph/adapter.ts",
     "web/src/lib/graph/types.ts",
     "web/src/lib/workspace/types.ts",
     "web/src/lib/editor/serialize.ts",

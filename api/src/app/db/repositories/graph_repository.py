@@ -20,6 +20,9 @@ class EmbeddingNeighbor:
 class GraphRepository:
     def __init__(self, session: Session) -> None:
         self._session = session
+        # Track which graph names have been confirmed to exist this session so
+        # LOAD 'age' + SET search_path + graph-existence check only fire once.
+        self._age_ready_graphs: set[str] = set()
 
     def _validate_graph_name(self, graph_name: str) -> None:
         if not _GRAPH_NAME_PATTERN.fullmatch(graph_name):
@@ -38,6 +41,9 @@ class GraphRepository:
 
     def ensure_graph_exists(self, *, graph_name: str = "neuronote") -> None:
         self._validate_graph_name(graph_name)
+
+        if graph_name in self._age_ready_graphs:
+            return  # Already set up for this session — skip the 3 round-trips.
 
         self._session.execute(text("LOAD 'age'"))
         self._session.execute(text('SET search_path = ag_catalog, "$user", public'))
@@ -59,6 +65,51 @@ class GraphRepository:
                 text("SELECT ag_catalog.create_graph(:graph_name)"),
                 {"graph_name": graph_name},
             )
+
+        self._age_ready_graphs.add(graph_name)
+
+    def upsert_nodes_batch(
+        self,
+        *,
+        label: str,
+        nodes: list[dict[str, object]],
+        graph_name: str = "neuronote",
+    ) -> None:
+        """Upsert multiple nodes of the same label in a single AGE UNWIND query.
+
+        Each dict in `nodes` must contain an ``id`` key used as the MERGE key;
+        all other keys become node properties.
+        Reduces n individual round-trips down to 1 for homogeneous node batches.
+        Falls back to individual upserts for a single-node list to keep call
+        sites simple.
+        """
+        if not nodes:
+            return
+        if len(nodes) == 1:
+            row = nodes[0]
+            node_id = str(row["id"])
+            self.upsert_node(label=label, node_id=node_id, properties=row, graph_name=graph_name)
+            return
+
+        self._validate_label(label)
+        self.ensure_graph_exists(graph_name=graph_name)
+
+        row_literals = ", ".join(self._cypher_map_literal(row) for row in nodes)
+        query = f"""
+        UNWIND [{row_literals}] AS row
+        MERGE (n:{label} {{id: row.id}})
+        SET n += row
+        RETURN count(n)
+        """
+        self._session.execute(
+            text(
+                """
+                SELECT *
+                FROM ag_catalog.cypher('%s', $$ %s $$) AS (value ag_catalog.agtype)
+                """
+                % (graph_name, query)
+            )
+        ).first()
 
     def upsert_node(
         self,
@@ -218,41 +269,6 @@ class GraphRepository:
         ).all()
         return [str(row[0]) for row in rows]
 
-    def ensure_embedding_table(self) -> None:
-        self._session.execute(
-            text(
-                """
-                CREATE TABLE IF NOT EXISTS public.note_embeddings (
-                    embedding_id BIGSERIAL PRIMARY KEY,
-                    item_id TEXT NOT NULL,
-                    item_type TEXT NOT NULL,
-                    embedding vector(384) NOT NULL,
-                    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                    UNIQUE (item_id, item_type)
-                )
-                """
-            )
-        )
-        self._session.execute(
-            text(
-                """
-                DO $$
-                BEGIN
-                    IF to_regclass('ag_catalog.note_embeddings') IS NOT NULL THEN
-                        INSERT INTO public.note_embeddings (item_id, item_type, embedding, created_at)
-                        SELECT item_id, item_type, embedding, created_at
-                        FROM ag_catalog.note_embeddings
-                        ON CONFLICT (item_id, item_type)
-                        DO UPDATE SET
-                            embedding = EXCLUDED.embedding,
-                            created_at = EXCLUDED.created_at;
-                    END IF;
-                END
-                $$;
-                """
-            )
-        )
-
     def upsert_embedding(
         self,
         *,
@@ -263,7 +279,6 @@ class GraphRepository:
         if len(embedding) != 384:
             raise ValueError("embedding must contain exactly 384 dimensions")
 
-        self.ensure_embedding_table()
         vector_literal = "[" + ",".join(f"{value:.8f}" for value in embedding) + "]"
 
         self._session.execute(
@@ -294,7 +309,6 @@ class GraphRepository:
         if limit < 1:
             raise ValueError("limit must be >= 1")
 
-        self.ensure_embedding_table()
         query_literal = "[" + ",".join(f"{value:.8f}" for value in query_embedding) + "]"
 
         rows = self._session.execute(

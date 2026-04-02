@@ -9,6 +9,7 @@ describe("LocalGraphPanel", () => {
     render(
       <LocalGraphPanel
         noteId="note-1"
+        baseUrl="http://localhost:8000"
         graph={null}
         filters={{
           max_hops: 1,
@@ -32,6 +33,7 @@ describe("LocalGraphPanel", () => {
     render(
       <LocalGraphPanel
         noteId="note-1"
+        baseUrl="http://localhost:8000"
         graph={null}
         filters={{
           max_hops: 1,
@@ -55,6 +57,7 @@ describe("LocalGraphPanel", () => {
     render(
       <LocalGraphPanel
         noteId="note-1"
+        baseUrl="http://localhost:8000"
         graph={{
           nodes: [
             {

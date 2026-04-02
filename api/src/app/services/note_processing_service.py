@@ -9,6 +9,7 @@ from app.db.models.block import Block
 from app.db.engine import get_session_factory
 from app.db.repositories.entity_alias_repository import AliasRecord, EntityAliasRepository
 from app.db.repositories.note_repository import NoteRepository
+from app.nlp.concept_registry import get_known_concepts, register_concepts
 from app.nlp.pipeline import NoteNlpPipeline
 from app.nlp.resolution.resolver import CanonicalAlias, EntityResolver
 from app.nlp.types import BlockTextInput
@@ -130,13 +131,26 @@ class NoteProcessingService:
 
     def _persist_graph_and_vector(self, *, snapshot: ProcessedNoteSnapshot) -> None:
         alias_records = self._load_alias_records()
+        # Merge entity-alias terms with all concepts extracted from previous notes.
+        # This feeds the SLM its own prior output as "known concepts", closing the
+        # normalisation loop: once "machine learning" is extracted once, future calls
+        # see it and reuse that exact form instead of producing "ML" or "machine-learning".
+        base_terms = self._build_dictionary_terms(alias_records)
+        known = get_known_concepts()
+        dictionary_terms = base_terms + [c for c in known if c not in set(t.lower() for t in base_terms)]
+
         result = self._pipeline.extract(
             note_id=snapshot.note_id,
+            title=snapshot.note_title,
             content_text=self._compose_pipeline_text(snapshot),
             content_hash=snapshot.content_hash,
             blocks=snapshot.blocks,
-            dictionary_terms=self._build_dictionary_terms(alias_records),
+            dictionary_terms=dictionary_terms,
         )
+
+        # Register newly extracted concepts so subsequent notes see them.
+        if result.entities:
+            register_concepts([(e.text, e.entity_id) for e in result.entities if e.label == "concept"])
         resolution_batch = self._build_resolver(alias_records).resolve(result.entities)
 
         with self._session_factory() as session:
@@ -168,6 +182,7 @@ class NoteProcessingService:
                         resolved_entities=resolved_index,
                         embedding=result.embedding,
                         entity_mentions=result.entity_mentions,
+                        note_summary=result.summary,
                     )
                 )
 

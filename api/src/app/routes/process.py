@@ -1,4 +1,4 @@
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.job_store import (
@@ -10,6 +10,7 @@ from app.core.job_store import (
 )
 from app.db.repositories.note_repository import NoteRepository
 from app.db.session import get_db_session
+from app.core.rate_limiter import limiter
 from app.services.note_processing_service import NoteNotFoundError, NoteProcessingService
 from shared.contracts.python.v1.process import (
     ProcessNoteRequest,
@@ -39,7 +40,9 @@ def _run_processing_job(*, job_id: str, payload: ProcessNoteRequest) -> None:
     response_model=ProcessNoteResponse,
     status_code=status.HTTP_202_ACCEPTED,
 )
+@limiter.limit("30/minute")
 def process_note(
+    request: Request,
     payload: ProcessNoteRequest,
     background_tasks: BackgroundTasks,
     session: Session = Depends(get_db_session),

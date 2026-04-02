@@ -110,6 +110,114 @@ function sameTags(left: string[], right: string[]): boolean {
   return left.every((tag, index) => tag === right[index]);
 }
 
+interface NoteOptionsMenuProps {
+  subjectId: string;
+  onSubjectChange: (value: string) => void;
+  availableSubjects: string[];
+  tags: string[];
+  onTagsChange: (tags: string[]) => void;
+  availableTags: string[];
+  isPinned: boolean;
+  onPinnedChange: (value: boolean) => void;
+  isArchived: boolean;
+  onArchivedChange: (value: boolean) => void;
+  onExport: () => void;
+  disabled: boolean;
+}
+
+function NoteOptionsMenu({
+  subjectId,
+  onSubjectChange,
+  availableSubjects,
+  tags,
+  onTagsChange,
+  availableTags,
+  isPinned,
+  onPinnedChange,
+  isArchived,
+  onArchivedChange,
+  onExport,
+  disabled,
+}: NoteOptionsMenuProps) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    function handleOutside(e: MouseEvent) {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleOutside);
+    return () => document.removeEventListener("mousedown", handleOutside);
+  }, [open]);
+
+  return (
+    <div ref={menuRef} className="note-options-menu">
+      <button
+        type="button"
+        className="note-options-trigger"
+        onClick={() => setOpen((prev) => !prev)}
+        aria-label="Note options"
+        aria-expanded={open}
+      >
+        ···
+      </button>
+      {open && (
+        <div className="note-options-dropdown" role="menu">
+          <div className="note-options-row">
+            <span className="note-options-label">Subject</span>
+            <SubjectPicker
+              value={subjectId}
+              onChange={onSubjectChange}
+              suggestions={availableSubjects}
+              disabled={disabled}
+            />
+          </div>
+          <div className="note-options-row">
+            <span className="note-options-label">Tags</span>
+            <TagPicker
+              value={tags}
+              onChange={onTagsChange}
+              suggestions={availableTags}
+              disabled={disabled}
+            />
+          </div>
+          <div className="note-options-divider" />
+          <label className="note-options-toggle">
+            <input
+              type="checkbox"
+              checked={isPinned}
+              onChange={(e) => onPinnedChange(e.target.checked)}
+              disabled={disabled}
+            />
+            Pinned
+          </label>
+          <label className="note-options-toggle">
+            <input
+              type="checkbox"
+              checked={isArchived}
+              onChange={(e) => onArchivedChange(e.target.checked)}
+              disabled={disabled}
+            />
+            Archived
+          </label>
+          <div className="note-options-divider" />
+          <button
+            type="button"
+            className="note-options-action"
+            onClick={() => { onExport(); setOpen(false); }}
+            disabled={disabled}
+          >
+            Export Markdown
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 const DEFAULT_LOCAL_GRAPH_FILTERS = {
   max_hops: 1 as const,
   limit_nodes: 80,
@@ -156,6 +264,7 @@ export function NoteEditor({
     plainText: "",
     updatedAt,
   });
+  const saveAbortControllerRef = useRef<AbortController | null>(null);
   const localGraphRequestTokenRef = useRef(0);
   const activeJobIdRef = useRef<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof createProcessPollingController> | null>(null);
@@ -249,6 +358,12 @@ export function NoteEditor({
   }, [baseUrl, noteId]);
 
   const performAutosave = useCallback(async () => {
+    // Cancel any in-flight save before starting a new one to prevent stale
+    // responses from overwriting more recent state.
+    saveAbortControllerRef.current?.abort();
+    const controller = new AbortController();
+    saveAbortControllerRef.current = controller;
+
     const snapshot = latestSnapshotRef.current;
     setSaveStatus("saving");
 
@@ -263,7 +378,7 @@ export function NoteEditor({
         content_json: snapshot.documentJson,
         content_text: snapshot.plainText || " ",
         updated_at: snapshot.updatedAt,
-      });
+      }, controller.signal);
 
       setSaveStatus("saved");
       const nextPersistedMetadata: PersistedMetadataSnapshot = {
@@ -297,7 +412,11 @@ export function NoteEditor({
       if (snapshot.updatedAt === latestSnapshotRef.current.updatedAt) {
         setDirty(false);
       }
-    } catch {
+    } catch (err) {
+      if (err instanceof Error && err.name === "AbortError") {
+        // Save was superseded by a newer one — not an error, just discard.
+        return;
+      }
       setSaveStatus("error");
     }
   }, [baseUrl, noteId, onMetadataSaved]);
@@ -538,27 +657,44 @@ export function NoteEditor({
 
   return (
     <section className="note-editor" data-testid="note-editor">
-      <EditorToolbar dirty={dirty} saveStatus={saveStatus} processStatus={processStatus} />
-
-      <div className="note-tabs" role="tablist" aria-label="Note view">
-        <button
-          type="button"
-          role="tab"
-          className={`note-tab${noteView === "write" ? " active" : ""}`}
-          aria-selected={noteView === "write"}
-          onClick={() => setNoteView("write")}
-        >
-          Write
-        </button>
-        <button
-          type="button"
-          role="tab"
-          className={`note-tab${noteView === "graph" ? " active" : ""}`}
-          aria-selected={noteView === "graph"}
-          onClick={() => setNoteView("graph")}
-        >
-          Graph
-        </button>
+      <div className="note-editor-top-bar">
+        <div className="note-editor-status-row">
+          <EditorToolbar dirty={dirty} saveStatus={saveStatus} processStatus={processStatus} />
+          <NoteOptionsMenu
+            subjectId={subjectId}
+            onSubjectChange={handleSubjectChange}
+            availableSubjects={availableSubjects}
+            tags={parseTagsInput(tagsInput)}
+            onTagsChange={(newTags) => handleTagsChange(newTags.join(", "))}
+            availableTags={availableTags}
+            isPinned={isPinned}
+            onPinnedChange={handlePinnedChange}
+            isArchived={isArchived}
+            onArchivedChange={handleArchivedChange}
+            onExport={() => { void handleExportMarkdown(); }}
+            disabled={isLoading}
+          />
+        </div>
+        <div className="note-tabs" role="tablist" aria-label="Note view">
+          <button
+            type="button"
+            role="tab"
+            className={`note-tab${noteView === "write" ? " active" : ""}`}
+            aria-selected={noteView === "write"}
+            onClick={() => setNoteView("write")}
+          >
+            Write
+          </button>
+          <button
+            type="button"
+            role="tab"
+            className={`note-tab${noteView === "graph" ? " active" : ""}`}
+            aria-selected={noteView === "graph"}
+            onClick={() => setNoteView("graph")}
+          >
+            Graph
+          </button>
+        </div>
       </div>
 
       {noteView === "write" ? (
@@ -574,64 +710,6 @@ export function NoteEditor({
               disabled={isLoading}
             />
           </label>
-          <div className="note-properties">
-            <div className="note-property-row">
-              <span className="note-property-label">Subject</span>
-              <SubjectPicker
-                value={subjectId}
-                onChange={handleSubjectChange}
-                suggestions={availableSubjects}
-                disabled={isLoading}
-              />
-            </div>
-            <div className="note-property-row">
-              <span className="note-property-label">Tags</span>
-              <TagPicker
-                value={parseTagsInput(tagsInput)}
-                onChange={(tags) => handleTagsChange(tags.join(", "))}
-                suggestions={availableTags}
-                disabled={isLoading}
-              />
-            </div>
-            <div className="note-property-row">
-              <span className="note-property-label">Options</span>
-              <div className="note-editor-toggle-row">
-                <label className="note-editor-toggle">
-                  <input
-                    aria-label="Pinned"
-                    type="checkbox"
-                    checked={isPinned}
-                    onChange={(event) => handlePinnedChange(event.target.checked)}
-                    disabled={isLoading}
-                  />
-                  Pinned
-                </label>
-                <label className="note-editor-toggle">
-                  <input
-                    aria-label="Archived"
-                    type="checkbox"
-                    checked={isArchived}
-                    onChange={(event) => handleArchivedChange(event.target.checked)}
-                    disabled={isLoading}
-                  />
-                  Archived
-                </label>
-              </div>
-            </div>
-          </div>
-          <div className="note-editor-toggle-row">
-            <button
-              type="button"
-              className="editor-command-button"
-              onClick={() => {
-                void handleExportMarkdown();
-              }}
-              disabled={isLoading}
-              aria-label="Export markdown"
-            >
-              Export Markdown
-            </button>
-          </div>
           <TipTapEditor
             value={documentJson}
             onUpdate={handleEditorUpdate}
@@ -648,6 +726,7 @@ export function NoteEditor({
       ) : (
         <LocalGraphPanel
           noteId={noteId}
+          baseUrl={baseUrl}
           graph={localGraph}
           filters={localGraphFilters}
           isLoading={localGraphLoading}

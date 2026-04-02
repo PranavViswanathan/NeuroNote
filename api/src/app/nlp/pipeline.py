@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from collections import OrderedDict
+from dataclasses import replace as _dataclass_replace
 import logging
+import re
 from threading import Lock
 import time
 
@@ -9,13 +12,42 @@ from app.nlp.embeddings import build_embedding
 from app.nlp.keyphrases import extract_keyphrases
 from app.nlp.metrics import StageTiming, format_stage_timings
 from app.nlp.relations import extract_relations
+from app.nlp.semantic_embeddings import build_semantic_embedding
+from app.nlp.slm_extractor import SLMExtractor
 from app.nlp.spotting import extract_entities_with_mentions_and_metrics
-from app.nlp.types import BlockTextInput, NoteExtractionResult
+from app.nlp.types import BlockTextInput, ExtractedEntity, ExtractedRelation, NoteExtractionResult
+
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 _LOGGER = logging.getLogger(__name__)
 
+# Module-level LRU cache for NLP extraction results.
+# Keyed by (note_id, content_hash) — a changed note produces a new hash, so stale
+# entries become unreachable and are evicted naturally without explicit invalidation.
+_EXTRACTION_CACHE: OrderedDict[tuple[str, str], NoteExtractionResult] = OrderedDict()
+_EXTRACTION_CACHE_MAX = 512
+
 
 class NoteNlpPipeline:
+    """Orchestrates NLP extraction for a single note.
+
+    Supports three extraction profiles (controlled by ``NLP_EXTRACTION_PROFILE``):
+
+    - ``rule-only``   — dictionary matching + deterministic regex; no external deps.
+    - ``hybrid-spacy``— dictionary + spaCy NER + regex fallback; requires spaCy + model.
+    - ``llm-enhanced``— Claude API extraction via :class:`SLMExtractor`; highest quality;
+                        requires ``ANTHROPIC_API_KEY``.
+
+    Results are cached in the module-level LRU by ``content_hash``.  Two notes with
+    identical text share one extraction result; changing a note produces a new hash and
+    the stale entry is evicted naturally once the cache reaches ``_EXTRACTION_CACHE_MAX``.
+
+    spaCy model handles are cached at the class level behind a ``threading.Lock`` so that
+    multiple worker threads share one loaded model rather than loading redundant copies.
+    If the model is missing or fails to load the pipeline silently falls back to the
+    rule-based layers without raising.
+    """
+
     _MODEL_HANDLE_CACHE: dict[str, object | None] = {}
     _MODEL_CACHE_LOCK = Lock()
 
@@ -23,6 +55,13 @@ class NoteNlpPipeline:
         self._settings = settings or get_nlp_settings()
         self._last_stage_timings: dict[str, float] = {}
         self._last_extraction_hit_counts: dict[str, int] = {}
+        self._slm_extractor: SLMExtractor | None = None
+        if self._settings.extraction_profile == "llm-enhanced" and self._settings.llm_api_key:
+            self._slm_extractor = SLMExtractor(
+                model=self._settings.llm_model,
+                api_key=self._settings.llm_api_key,
+                timeout_ms=self._settings.llm_timeout_ms,
+            )
 
     def _get_model_handle(self, model_name: str) -> object | None:
         with self._MODEL_CACHE_LOCK:
@@ -66,15 +105,32 @@ class NoteNlpPipeline:
     def get_last_extraction_hit_counts(self) -> dict[str, int]:
         return dict(self._last_extraction_hit_counts)
 
+    @staticmethod
+    def _slugify(text: str) -> str:
+        return _SLUG_RE.sub("-", text.lower()).strip("-") or "unknown"
+
     def extract(
         self,
         *,
         note_id: str,
+        title: str = "",
         content_text: str,
         content_hash: str,
         blocks: list[BlockTextInput] | None = None,
         dictionary_terms: list[str] | None = None,
     ) -> NoteExtractionResult:
+        # ── Extraction cache ──────────────────────────────────────────────────
+        # Key on content_hash only — two notes with identical text share one
+        # extraction result, guaranteeing identical concepts regardless of note_id.
+        cache_key = content_hash
+        if cache_key in _EXTRACTION_CACHE:
+            _EXTRACTION_CACHE.move_to_end(cache_key)
+            cached = _EXTRACTION_CACHE[cache_key]
+            # Re-stamp note_id so GraphSyncService targets the right note.
+            if cached.note_id != note_id:
+                return _dataclass_replace(cached, note_id=note_id)
+            return cached
+
         stage_timings: list[StageTiming] = []
         started_at = time.perf_counter()
 
@@ -88,8 +144,84 @@ class NoteNlpPipeline:
             self._last_stage_timings = format_stage_timings(stage_timings)
             return self._empty_result(note_id=note_id, content_hash=content_hash)
 
+        # ── LLM-enhanced path ──────────────────────────────────────────────────
+        if self._settings.extraction_profile == "llm-enhanced" and self._slm_extractor is not None:
+            slm_started = time.perf_counter()
+            slm_result = self._slm_extractor.extract(
+                title=title,
+                content=content_text,
+                known_concepts=list(dictionary_terms or []),
+            )
+            stage_timings.append(
+                StageTiming(
+                    stage="slm_extraction",
+                    duration_ms=(time.perf_counter() - slm_started) * 1000.0,
+                )
+            )
+
+            if slm_result is not None:
+                entities: list[ExtractedEntity] = [
+                    ExtractedEntity(
+                        entity_id=f"concept-{self._slugify(c.text)}",
+                        text=c.text,
+                        label="concept",
+                        confidence=c.confidence,
+                    )
+                    for c in slm_result.concepts
+                ]
+                relations: list[ExtractedRelation] = [
+                    ExtractedRelation(
+                        subject_id=f"concept-{self._slugify(r.source)}",
+                        subject_text=r.source,
+                        predicate=r.type,
+                        object_id=f"concept-{self._slugify(r.target)}",
+                        object_text=r.target,
+                        confidence=r.confidence,
+                    )
+                    for r in slm_result.relations
+                ]
+
+                embedding_started = time.perf_counter()
+                if self._settings.use_semantic_embeddings:
+                    embedding = build_semantic_embedding(content_text)
+                    if embedding is None:
+                        embedding = build_embedding(content_text) if self._settings.enable_embeddings else None
+                else:
+                    embedding = build_embedding(content_text) if self._settings.enable_embeddings else None
+                stage_timings.append(
+                    StageTiming(
+                        stage="embedding",
+                        duration_ms=(time.perf_counter() - embedding_started) * 1000.0,
+                    )
+                )
+                stage_timings.append(
+                    StageTiming(
+                        stage="total",
+                        duration_ms=(time.perf_counter() - started_at) * 1000.0,
+                    )
+                )
+                self._last_stage_timings = format_stage_timings(stage_timings)
+                self._last_extraction_hit_counts = {"slm_concepts": len(entities), "slm_relations": len(relations)}
+                _LOGGER.debug("NLP stage timings (llm-enhanced): %s", self._last_stage_timings)
+                slm_extraction_result = NoteExtractionResult(
+                    note_id=note_id,
+                    content_hash=content_hash,
+                    entities=entities,
+                    keyphrases=[],
+                    relations=relations,
+                    embedding=embedding,
+                    entity_mentions=[],
+                    summary=slm_result.summary,
+                )
+                _EXTRACTION_CACHE[content_hash] = slm_extraction_result
+                if len(_EXTRACTION_CACHE) > _EXTRACTION_CACHE_MAX:
+                    _EXTRACTION_CACHE.popitem(last=False)
+                return slm_extraction_result
+            # SLM failed — fall through to rule-based path
+
+        # ── Rule-based / hybrid-spacy path ────────────────────────────────────
         model_handle = None
-        if self._settings.extraction_profile == "hybrid-spacy":
+        if self._settings.extraction_profile in {"hybrid-spacy", "llm-enhanced"}:
             model_handle = self._get_model_handle(self._settings.model_name)
         stage_timings.append(StageTiming(stage="model_handle_ready", duration_ms=0.0))
 
@@ -166,7 +298,7 @@ class NoteNlpPipeline:
         self._last_stage_timings = format_stage_timings(stage_timings)
         _LOGGER.debug("NLP stage timings: %s", self._last_stage_timings)
 
-        return NoteExtractionResult(
+        result = NoteExtractionResult(
             note_id=note_id,
             content_hash=content_hash,
             entities=entities,
@@ -175,3 +307,7 @@ class NoteNlpPipeline:
             embedding=embedding,
             entity_mentions=entity_mentions,
         )
+        _EXTRACTION_CACHE[content_hash] = result
+        if len(_EXTRACTION_CACHE) > _EXTRACTION_CACHE_MAX:
+            _EXTRACTION_CACHE.popitem(last=False)
+        return result

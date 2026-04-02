@@ -56,3 +56,24 @@ class GlobalGraphResponse(BaseModel):
     nodes: list[LocalGraphNode]
     edges: list[LocalGraphEdge]
     meta: GlobalGraphMeta
+
+
+class ConceptNoteRef(BaseModel):
+    note_id: str
+    note_title: str
+    snippet: str
+
+
+class ConceptLearningLink(BaseModel):
+    title: str
+    url: str
+    description: str
+
+
+class ConceptInsightResponse(BaseModel):
+    concept_label: str
+    notes_found: int
+    note_refs: list[ConceptNoteRef]
+    insight: str | None = None
+    learning_links: list[ConceptLearningLink] = Field(default_factory=list)
+    generated_at: str

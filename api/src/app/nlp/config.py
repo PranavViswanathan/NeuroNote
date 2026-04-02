@@ -21,7 +21,7 @@ def _as_profile(raw_value: str | None, *, default: str) -> str:
     if raw_value is None:
         return default
     normalized = raw_value.strip().lower()
-    if normalized in {"rule-only", "hybrid-spacy"}:
+    if normalized in {"rule-only", "hybrid-spacy", "llm-enhanced"}:
         return normalized
     return default
 
@@ -49,6 +49,11 @@ class NlpSettings:
         "knowledge graph",
         "neural networks",
     )
+    # LLM-enhanced profile settings
+    llm_model: str = "claude-haiku-4-5-20251001"
+    llm_api_key: str = ""
+    llm_timeout_ms: int = 8000
+    use_semantic_embeddings: bool = False
 
 
 def get_nlp_settings() -> NlpSettings:
@@ -74,6 +79,12 @@ def get_nlp_settings() -> NlpSettings:
                 "knowledge graph",
                 "neural networks",
             ),
+        ),
+        llm_model=os.getenv("NLP_LLM_MODEL", "claude-haiku-4-5-20251001"),
+        llm_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
+        llm_timeout_ms=_as_int(os.getenv("NLP_LLM_TIMEOUT_MS"), default=8000),
+        use_semantic_embeddings=_as_bool(
+            os.getenv("NLP_USE_SEMANTIC_EMBEDDINGS"), default=False
         ),
     )
 

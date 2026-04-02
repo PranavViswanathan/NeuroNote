@@ -33,6 +33,7 @@ services:
         "api",
         "--group",
         "dev",
+        "--no-sync",
         "uvicorn",
         "app.main:app",
         "--app-dir",
@@ -41,7 +42,8 @@ services:
         "0.0.0.0",
         "--port",
         "8000",
-        "--reload",
+        "--workers",
+        "4",
       ]
     volumes:
       - ..:/app
@@ -56,12 +58,22 @@ services:
       NLP_EXTRACTION_PROFILE: ${NLP_EXTRACTION_PROFILE:-rule-only}
       NLP_ENABLE_REGEX_FALLBACK: ${NLP_ENABLE_REGEX_FALLBACK:-true}
       NLP_ENTITY_SEED_TERMS: ${NLP_ENTITY_SEED_TERMS:-machine learning,entity resolution,graph reasoning,knowledge graph,neural networks}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      NLP_LLM_MODEL: ${NLP_LLM_MODEL:-claude-haiku-4-5-20251001}
+      NLP_USE_SEMANTIC_EMBEDDINGS: ${NLP_USE_SEMANTIC_EMBEDDINGS:-false}
+      API_KEY: ${API_KEY:-}
       UV_PROJECT_ENVIRONMENT: /tmp/neuronote-api-venv
       UV_CACHE_DIR: /tmp/uv-cache
       PYTHONPATH: api/src:.
     depends_on:
       db:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8000/health')\" || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
 
   web:
     image: node:20
@@ -73,8 +85,10 @@ services:
       - "${WEB_PORT:-3000}:3000"
     environment:
       NEXT_PUBLIC_API_BASE_URL: http://127.0.0.1:8000
+      NEXT_PUBLIC_API_KEY: ${API_KEY:-}
     depends_on:
-      - api
+      api:
+        condition: service_healthy
 
 volumes:
   neuronote-db-data:

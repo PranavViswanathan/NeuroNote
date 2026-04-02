@@ -3,13 +3,15 @@
 import { useState } from "react";
 
 import { D3GraphCanvas } from "./D3GraphCanvas";
-import type { LocalGraphResponse } from "../../../../shared/contracts/ts/v1/graph";
+import { ConceptInsightPanel } from "./ConceptInsightPanel";
+import type { LocalGraphNode, LocalGraphResponse } from "../../../../shared/contracts/ts/v1/graph";
 import { SkeletonGraph } from "../ui/Skeleton";
 import { EmptyState } from "../ui/EmptyState";
 import { ErrorMessage } from "../ui/ErrorMessage";
 
 interface LocalGraphPanelProps {
   noteId: string;
+  baseUrl: string;
   graph: LocalGraphResponse | null;
   filters: {
     max_hops: number;
@@ -31,6 +33,7 @@ interface LocalGraphPanelProps {
 
 export function LocalGraphPanel({
   noteId,
+  baseUrl,
   graph,
   filters,
   isLoading,
@@ -40,6 +43,16 @@ export function LocalGraphPanel({
   onOpenNote,
 }: LocalGraphPanelProps) {
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [insightNode, setInsightNode] = useState<LocalGraphNode | null>(null);
+
+  function handleNodeClick(node: LocalGraphNode) {
+    setSelectedNodeId(node.id);
+    if (node.type === "note") {
+      onOpenNote(String(node.metadata.note_id ?? node.id));
+    } else {
+      setInsightNode(node);
+    }
+  }
 
   const handleIncludeTypeToggle = (value: string, checked: boolean) => {
     const current = new Set(filters.include_types);
@@ -154,12 +167,7 @@ export function LocalGraphPanel({
               rootNodeId={noteId}
               height={300}
               ariaLabel="Local graph canvas"
-              onNodeClick={(node) => {
-                setSelectedNodeId(node.id);
-                if (node.type === "note") {
-                  onOpenNote(String(node.metadata.note_id ?? node.id));
-                }
-              }}
+              onNodeClick={handleNodeClick}
             />
           )}
 
@@ -169,12 +177,7 @@ export function LocalGraphPanel({
                 <button
                   type="button"
                   className={`local-graph-node-button${selectedNodeId === node.id ? " selected" : ""}`}
-                  onClick={() => {
-                    setSelectedNodeId(node.id);
-                    if (node.type === "note") {
-                      onOpenNote(String(node.metadata.note_id ?? node.id));
-                    }
-                  }}
+                  onClick={() => handleNodeClick(node)}
                 >
                   <span>{node.label}</span>
                   <span>{node.type}</span>
@@ -183,6 +186,15 @@ export function LocalGraphPanel({
             ))}
           </ul>
         </>
+      )}
+
+      {insightNode && (
+        <ConceptInsightPanel
+          node={insightNode}
+          baseUrl={baseUrl}
+          onClose={() => setInsightNode(null)}
+          onOpenNote={onOpenNote}
+        />
       )}
     </section>
   );

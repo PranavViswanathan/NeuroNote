@@ -20,13 +20,19 @@ def _build_engine(database_url: str, *, db_echo: bool) -> Engine:
     if database_url.startswith("sqlite"):
         connect_args["check_same_thread"] = False
 
-    return create_engine(
-        database_url,
-        echo=db_echo,
-        future=True,
-        pool_pre_ping=not database_url.startswith("sqlite"),
-        connect_args=connect_args,
-    )
+    is_postgres = database_url.startswith("postgresql")
+    kwargs: dict[str, object] = {
+        "echo": db_echo,
+        "future": True,
+        "pool_pre_ping": is_postgres,
+        "connect_args": connect_args,
+    }
+    if is_postgres:
+        kwargs["pool_size"] = 5
+        kwargs["max_overflow"] = 5
+        kwargs["pool_recycle"] = 300  # recycle connections after 5 min
+
+    return create_engine(database_url, **kwargs)  # type: ignore[arg-type]
 
 
 def get_engine() -> Engine:

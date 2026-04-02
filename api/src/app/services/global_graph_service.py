@@ -4,9 +4,10 @@ from dataclasses import dataclass
 import hashlib
 import re
 
-from sqlalchemy import select
+from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
 
+from app.core.graph_cache import get_cached, get_notes_version, set_cached
 from app.db.models.block import Block
 from app.db.models.note import Note
 from app.db.repositories.entity_alias_repository import EntityAliasRepository
@@ -62,12 +63,20 @@ class GlobalGraphService:
             return ["note", "entity", "relation"]
         return normalized
 
-    def _list_notes(self) -> list[_NoteSnapshot]:
+    def _list_notes(self, *, limit: int) -> list[_NoteSnapshot]:
+        # Fetch the most-recently-updated notes up to the requested limit to
+        # avoid loading the entire corpus when limit_nodes is small.
+        rows = self._session.execute(
+            select(Note.note_id, Note.note_title, Note.content_text)
+            .order_by(desc(Note.updated_at))
+            .limit(limit)
+        ).all()
+        note_ids = [str(row[0]) for row in rows]
+
         block_rows = self._session.execute(
-            select(Block.note_id, Block.block_index, Block.content_text).order_by(
-                Block.note_id.asc(),
-                Block.block_index.asc(),
-            )
+            select(Block.note_id, Block.block_index, Block.content_text)
+            .where(Block.note_id.in_(note_ids))
+            .order_by(Block.note_id.asc(), Block.block_index.asc())
         ).all()
         blocks_by_note_id: dict[str, list[BlockTextInput]] = {}
         for row in block_rows:
@@ -78,9 +87,6 @@ class GlobalGraphService:
                 )
             )
 
-        rows = self._session.execute(
-            select(Note.note_id, Note.note_title, Note.content_text).order_by(Note.note_id.asc())
-        ).all()
         return [
             _NoteSnapshot(
                 note_id=str(row[0]),
@@ -136,9 +142,19 @@ class GlobalGraphService:
 
     def get_global_graph(self, query: GlobalGraphQuery) -> GlobalGraphResponse:
         include_types = self._normalize_include_types(query.include_types)
+
+        notes_version = get_notes_version(self._session)
+        cache_key = (
+            f"global:{query.limit_nodes}:{query.min_confidence}"
+            f":{'|'.join(sorted(include_types))}:{notes_version}"
+        )
+        cached = get_cached(cache_key)
+        if cached is not None:
+            return cached  # type: ignore[return-value]
+
         include_type_set = set(include_types)
 
-        notes = self._list_notes()
+        notes = self._list_notes(limit=query.limit_nodes * 2)
         dictionary_terms = self._build_dictionary_terms()
         total_notes = len(notes)
 
@@ -265,7 +281,7 @@ class GlobalGraphService:
             key=lambda item: (item.type, item.source, item.target, item.id),
         )
 
-        return GlobalGraphResponse(
+        response = GlobalGraphResponse(
             nodes=nodes,
             edges=edges,
             meta=GlobalGraphMeta(
@@ -278,3 +294,5 @@ class GlobalGraphService:
                 truncated=truncated,
             ),
         )
+        set_cached(cache_key, response)
+        return response

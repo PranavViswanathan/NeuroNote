@@ -53,3 +53,4 @@ class NoteExtractionResult:
     relations: list[ExtractedRelation]
     embedding: list[float] | None
     entity_mentions: list[ExtractedEntityMention] = field(default_factory=list)
+    summary: str = ""
