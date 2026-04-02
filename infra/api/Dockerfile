@@ -20,4 +20,10 @@ RUN uv sync --project api --group dev --frozen
 COPY infra/scripts/api-entrypoint.sh /usr/local/bin/api-entrypoint.sh
 RUN chmod +x /usr/local/bin/api-entrypoint.sh
 
+# Copy full source tree so the image is self-contained for Railway/production.
+# In Docker Compose the source is volume-mounted at runtime and this layer
+# is simply shadowed, so local dev behaviour is unchanged.
+COPY . .
+
 ENTRYPOINT ["api-entrypoint.sh"]
+CMD ["uv", "run", "--project", "api", "--no-sync", "uvicorn", "app.main:app", "--app-dir", "api/src", "--host", "0.0.0.0", "--port", "8000"]

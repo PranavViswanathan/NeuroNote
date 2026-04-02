@@ -1,0 +1,41 @@
+services:
+  db:
+    environment:
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
+    restart: always
+
+  api:
+    environment:
+      DATABASE_URL: postgresql+psycopg://neuronote:${DB_PASSWORD}@db:5432/neuronote
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+      API_KEY: ${API_KEY}
+      NLP_EXTRACTION_PROFILE: ${NLP_EXTRACTION_PROFILE:-llm-enhanced}
+    restart: always
+
+  web:
+    command: sh -lc "npm install && npm run build && npm start -- --hostname 0.0.0.0 --port 3000"
+    environment:
+      NEXT_PUBLIC_API_BASE_URL: https://${DOMAIN}
+      NEXT_PUBLIC_API_KEY: ${API_KEY}
+    restart: always
+
+  caddy:
+    image: caddy:2-alpine
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    environment:
+      DOMAIN: ${DOMAIN}
+    depends_on:
+      - web
+      - api
+    restart: always
+
+volumes:
+  caddy-data:
+  caddy-config:

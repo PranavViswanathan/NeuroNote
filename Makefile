@@ -1,4 +1,4 @@
-.PHONY: setup setup-web check check-web test test-api test-structure test-web test-db test-perf run run-api run-api-db run-web db-up db-down db-bootstrap-extensions db-migrate db-check-extensions compose-build compose-up compose-down compose-check compose-test compose-test-db compose-migrate compose-bootstrap-extensions compose-logs
+.PHONY: setup setup-web check check-web test test-api test-structure test-web test-db test-perf run run-api run-api-db run-web db-up db-down db-bootstrap-extensions db-migrate db-check-extensions compose-build compose-up compose-down compose-check compose-test compose-test-db compose-migrate compose-bootstrap-extensions compose-logs deploy-prod prod-migrate prod-logs prod-down
 
 UV_CACHE_DIR ?= .uv-cache
 DB_URL ?= postgresql+psycopg://neuronote:neuronote@127.0.0.1:5432/neuronote
@@ -90,3 +90,26 @@ compose-bootstrap-extensions:
 
 compose-logs:
 	$(COMPOSE) logs -f db api web
+
+# ─── Production (VPS + Caddy) ────────────────────────────────────────────────
+
+PROD_COMPOSE_FILE ?= infra/docker-compose.prod.yml
+PROD_ENV_FILE     ?= infra/.env.prod
+PROD_COMPOSE      = docker compose \
+                      -f $(COMPOSE_FILE) \
+                      -f $(PROD_COMPOSE_FILE) \
+                      --env-file $(PROD_ENV_FILE)
+
+deploy-prod:
+	$(PROD_COMPOSE) up -d --build
+
+prod-migrate:
+	$(PROD_COMPOSE) run --rm api sh -lc \
+	  "DATABASE_URL=postgresql+psycopg://neuronote:$${DB_PASSWORD}@db:5432/neuronote \
+	   uv run --project api --group dev --no-sync alembic -c api/alembic.ini upgrade head"
+
+prod-logs:
+	$(PROD_COMPOSE) logs -f db api web caddy
+
+prod-down:
+	$(PROD_COMPOSE) down
