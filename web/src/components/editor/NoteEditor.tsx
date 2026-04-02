@@ -8,8 +8,10 @@ import { TagPicker } from "./TagPicker";
 import { TipTapEditor, type TipTapUpdatePayload } from "./TipTapEditor";
 import { SkeletonEditor } from "../ui/Skeleton";
 import { ErrorMessage } from "../ui/ErrorMessage";
+import { LocalGraphPanel } from "../graph/LocalGraphPanel";
 import {
   exportNoteMarkdown,
+  fetchLocalGraph,
   listNotes,
   searchBlocks,
   fetchProcessingStatus,
@@ -18,6 +20,7 @@ import {
   saveNote,
   uploadNoteImage,
 } from "../../lib/api-client";
+import type { LocalGraphResponse } from "../../../../shared/contracts/ts/v1/graph";
 import {
   coerceEditorDoc,
   createEmptyEditorDoc,
@@ -37,6 +40,7 @@ interface NoteEditorProps {
   onMetadataSaved?: (payload: NoteMetadataPayload) => void;
   availableSubjects?: string[];
   availableTags?: string[];
+  onOpenNote?: (noteId: string) => void;
 }
 
 interface NoteSnapshot {
@@ -106,6 +110,13 @@ function sameTags(left: string[], right: string[]): boolean {
   return left.every((tag, index) => tag === right[index]);
 }
 
+const DEFAULT_LOCAL_GRAPH_FILTERS = {
+  max_hops: 1 as const,
+  limit_nodes: 80,
+  min_confidence: 0.35,
+  include_types: ["note", "entity", "relation"],
+};
+
 export function NoteEditor({
   noteId,
   baseUrl,
@@ -114,6 +125,7 @@ export function NoteEditor({
   onMetadataSaved,
   availableSubjects = [],
   availableTags = [],
+  onOpenNote,
 }: NoteEditorProps) {
   const [documentJson, setDocumentJson] = useState<EditorDoc>(createEmptyEditorDoc());
   const [noteTitle, setNoteTitle] = useState("Untitled");
@@ -128,6 +140,11 @@ export function NoteEditor({
   const [editorError, setEditorError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [updatedAt, setUpdatedAt] = useState(new Date().toISOString());
+  const [noteView, setNoteView] = useState<"write" | "graph">("write");
+  const [localGraph, setLocalGraph] = useState<LocalGraphResponse | null>(null);
+  const [localGraphLoading, setLocalGraphLoading] = useState(false);
+  const [localGraphErrorMessage, setLocalGraphErrorMessage] = useState<string | null>(null);
+  const [localGraphFilters, setLocalGraphFilters] = useState({ ...DEFAULT_LOCAL_GRAPH_FILTERS, include_types: [...DEFAULT_LOCAL_GRAPH_FILTERS.include_types] });
 
   const latestSnapshotRef = useRef<NoteSnapshot>({
     noteTitle: "Untitled",
@@ -139,6 +156,7 @@ export function NoteEditor({
     plainText: "",
     updatedAt,
   });
+  const localGraphRequestTokenRef = useRef(0);
   const activeJobIdRef = useRef<string | null>(null);
   const pollingRef = useRef<ReturnType<typeof createProcessPollingController> | null>(null);
   const lifecycleRef = useRef<ReturnType<typeof createNoteLifecycleController> | null>(null);
@@ -220,6 +238,8 @@ export function NoteEditor({
           setProcessStatus("idle");
           setDirty(false);
           setIsLoading(false);
+          setNoteView("write");
+          setLocalGraph(null);
         }
       });
 
@@ -487,6 +507,31 @@ export function NoteEditor({
     }
   }, [baseUrl, noteId]);
 
+  const loadLocalGraph = useCallback(async () => {
+    localGraphRequestTokenRef.current += 1;
+    const token = localGraphRequestTokenRef.current;
+    setLocalGraphLoading(true);
+    setLocalGraphErrorMessage(null);
+    try {
+      const result = await fetchLocalGraph(baseUrl, noteId, localGraphFilters);
+      if (token !== localGraphRequestTokenRef.current) return;
+      setLocalGraph(result);
+    } catch {
+      if (token !== localGraphRequestTokenRef.current) return;
+      setLocalGraphErrorMessage("Failed to load graph");
+    } finally {
+      if (token === localGraphRequestTokenRef.current) {
+        setLocalGraphLoading(false);
+      }
+    }
+  }, [baseUrl, noteId, localGraphFilters]);
+
+  useEffect(() => {
+    if (noteView === "graph") {
+      void loadLocalGraph();
+    }
+  }, [noteView, loadLocalGraph]);
+
   if (isLoading) {
     return <SkeletonEditor />;
   }
@@ -494,84 +539,121 @@ export function NoteEditor({
   return (
     <section className="note-editor" data-testid="note-editor">
       <EditorToolbar dirty={dirty} saveStatus={saveStatus} processStatus={processStatus} />
-      <label className="note-editor-field">
-        <span className="sr-only">Note title</span>
-        <input
-          className="note-editor-input note-editor-title"
-          aria-label="Note title"
-          type="text"
-          value={noteTitle}
-          onChange={(event) => handleTitleChange(event.target.value)}
-          disabled={isLoading}
-        />
-      </label>
-      <div className="note-editor-meta-grid">
-        <div className="note-editor-field">
-          <span className="sr-only">Subject</span>
-          <SubjectPicker
-            value={subjectId}
-            onChange={handleSubjectChange}
-            suggestions={availableSubjects}
-            disabled={isLoading}
-          />
-        </div>
-        <div className="note-editor-field">
-          <span className="sr-only">Tags</span>
-          <TagPicker
-            value={parseTagsInput(tagsInput)}
-            onChange={(tags) => handleTagsChange(tags.join(", "))}
-            suggestions={availableTags}
-            disabled={isLoading}
-          />
-        </div>
-      </div>
-      <div className="note-editor-toggle-row">
-        <label className="note-editor-toggle">
-          <input
-            aria-label="Pinned"
-            type="checkbox"
-            checked={isPinned}
-            onChange={(event) => handlePinnedChange(event.target.checked)}
-            disabled={isLoading}
-          />
-          Pinned
-        </label>
-        <label className="note-editor-toggle">
-          <input
-            aria-label="Archived"
-            type="checkbox"
-            checked={isArchived}
-            onChange={(event) => handleArchivedChange(event.target.checked)}
-            disabled={isLoading}
-          />
-          Archived
-        </label>
-      </div>
-      <div className="note-editor-toggle-row">
+
+      <div className="note-tabs" role="tablist" aria-label="Note view">
         <button
           type="button"
-          className="editor-command-button"
-          onClick={() => {
-            void handleExportMarkdown();
-          }}
-          disabled={isLoading}
-          aria-label="Export markdown"
+          role="tab"
+          className={`note-tab${noteView === "write" ? " active" : ""}`}
+          aria-selected={noteView === "write"}
+          onClick={() => setNoteView("write")}
         >
-          Export Markdown
+          Write
+        </button>
+        <button
+          type="button"
+          role="tab"
+          className={`note-tab${noteView === "graph" ? " active" : ""}`}
+          aria-selected={noteView === "graph"}
+          onClick={() => setNoteView("graph")}
+        >
+          Graph
         </button>
       </div>
-      <TipTapEditor
-        value={documentJson}
-        onUpdate={handleEditorUpdate}
-        onBlur={() => lifecycleRef.current?.onBlur()}
-        disabled={isLoading}
-        onUploadImage={handleUploadImage}
-        onSearchWikiLinks={searchWikiLinks}
-        onCreateWikiLink={createWikiLinkNote}
-        onSearchBlockRefs={searchBlockRefTargets}
-        onEditorError={(message) => setEditorError(message)}
-      />
-      {editorError ? <ErrorMessage message={editorError} compact /> : null}
+
+      {noteView === "write" ? (
+        <>
+          <label className="note-editor-field">
+            <span className="sr-only">Note title</span>
+            <input
+              className="note-editor-input note-editor-title"
+              aria-label="Note title"
+              type="text"
+              value={noteTitle}
+              onChange={(event) => handleTitleChange(event.target.value)}
+              disabled={isLoading}
+            />
+          </label>
+          <div className="note-editor-meta-grid">
+            <div className="note-editor-field">
+              <span className="sr-only">Subject</span>
+              <SubjectPicker
+                value={subjectId}
+                onChange={handleSubjectChange}
+                suggestions={availableSubjects}
+                disabled={isLoading}
+              />
+            </div>
+            <div className="note-editor-field">
+              <span className="sr-only">Tags</span>
+              <TagPicker
+                value={parseTagsInput(tagsInput)}
+                onChange={(tags) => handleTagsChange(tags.join(", "))}
+                suggestions={availableTags}
+                disabled={isLoading}
+              />
+            </div>
+          </div>
+          <div className="note-editor-toggle-row">
+            <label className="note-editor-toggle">
+              <input
+                aria-label="Pinned"
+                type="checkbox"
+                checked={isPinned}
+                onChange={(event) => handlePinnedChange(event.target.checked)}
+                disabled={isLoading}
+              />
+              Pinned
+            </label>
+            <label className="note-editor-toggle">
+              <input
+                aria-label="Archived"
+                type="checkbox"
+                checked={isArchived}
+                onChange={(event) => handleArchivedChange(event.target.checked)}
+                disabled={isLoading}
+              />
+              Archived
+            </label>
+          </div>
+          <div className="note-editor-toggle-row">
+            <button
+              type="button"
+              className="editor-command-button"
+              onClick={() => {
+                void handleExportMarkdown();
+              }}
+              disabled={isLoading}
+              aria-label="Export markdown"
+            >
+              Export Markdown
+            </button>
+          </div>
+          <TipTapEditor
+            value={documentJson}
+            onUpdate={handleEditorUpdate}
+            onBlur={() => lifecycleRef.current?.onBlur()}
+            disabled={isLoading}
+            onUploadImage={handleUploadImage}
+            onSearchWikiLinks={searchWikiLinks}
+            onCreateWikiLink={createWikiLinkNote}
+            onSearchBlockRefs={searchBlockRefTargets}
+            onEditorError={(message) => setEditorError(message)}
+          />
+          {editorError ? <ErrorMessage message={editorError} compact /> : null}
+        </>
+      ) : (
+        <LocalGraphPanel
+          noteId={noteId}
+          graph={localGraph}
+          filters={localGraphFilters}
+          isLoading={localGraphLoading}
+          errorMessage={localGraphErrorMessage}
+          onRetry={() => { void loadLocalGraph(); }}
+          onFiltersChange={(next) => { setLocalGraphFilters({ ...next, max_hops: next.max_hops as 1 }); }}
+          onOpenNote={(nextNoteId) => { onOpenNote?.(nextNoteId); }}
+        />
+      )}
     </section>
   );
 }

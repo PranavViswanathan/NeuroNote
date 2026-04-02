@@ -65,6 +65,14 @@ describe("LocalGraphPanel", () => {
               source_note_id: "note-1",
               metadata: {},
             },
+            {
+              id: "note-2",
+              type: "note",
+              label: "Note 2",
+              confidence: null,
+              source_note_id: "note-2",
+              metadata: {},
+            },
           ],
           edges: [
             {
@@ -101,7 +109,7 @@ describe("LocalGraphPanel", () => {
       />,
     );
 
-    expect(screen.getByText("1 nodes")).toBeInTheDocument();
+    expect(screen.getByText("2 nodes")).toBeInTheDocument();
     expect(screen.getByText("1 edges")).toBeInTheDocument();
     expect(screen.getByLabelText("Local graph canvas")).toBeInTheDocument();
   });

@@ -1,8 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useState } from "react";
 
-import { toLocalGraphViewModel } from "../../lib/graph/adapter";
+import { D3GraphCanvas } from "./D3GraphCanvas";
 import type { LocalGraphResponse } from "../../../../shared/contracts/ts/v1/graph";
 import { SkeletonGraph } from "../ui/Skeleton";
 import { EmptyState } from "../ui/EmptyState";
@@ -29,16 +29,6 @@ interface LocalGraphPanelProps {
   onOpenNote: (noteId: string) => void;
 }
 
-function pickNodeColor(nodeType: string): string {
-  if (nodeType === "note") {
-    return "#1d6d4f";
-  }
-  if (nodeType === "entity") {
-    return "#4568a6";
-  }
-  return "#6c6f75";
-}
-
 export function LocalGraphPanel({
   noteId,
   graph,
@@ -49,140 +39,7 @@ export function LocalGraphPanel({
   onFiltersChange,
   onOpenNote,
 }: LocalGraphPanelProps) {
-  const canvasRef = useRef<HTMLDivElement | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
-  const [rendererError, setRendererError] = useState<string | null>(null);
-  const [rendererMode, setRendererMode] = useState<"sigma" | "fallback">("sigma");
-
-  const GRAPH_HEIGHT_KEY = "neuronote.graphHeight";
-  const [graphHeight, setGraphHeight] = useState<number>(() => {
-    if (typeof window === "undefined") return 220;
-    const stored = window.localStorage.getItem(GRAPH_HEIGHT_KEY);
-    return stored ? Math.max(120, Math.min(600, Number(stored))) : 220;
-  });
-  const [isResizing, setIsResizing] = useState(false);
-  const resizeDragRef = useRef<{ startY: number; startHeight: number } | null>(null);
-
-  const handleResizeMouseDown = (e: React.MouseEvent) => {
-    e.preventDefault();
-    resizeDragRef.current = { startY: e.clientY, startHeight: graphHeight };
-    setIsResizing(true);
-  };
-
-  useEffect(() => {
-    if (!isResizing) return;
-
-    const handleMouseMove = (e: MouseEvent) => {
-      if (!resizeDragRef.current) return;
-      const delta = e.clientY - resizeDragRef.current.startY;
-      const next = Math.max(120, Math.min(600, resizeDragRef.current.startHeight + delta));
-      setGraphHeight(next);
-    };
-
-    const handleMouseUp = () => {
-      setIsResizing(false);
-      if (resizeDragRef.current) {
-        const current = Math.max(120, Math.min(600, graphHeight));
-        window.localStorage.setItem(GRAPH_HEIGHT_KEY, String(current));
-      }
-    };
-
-    document.addEventListener("mousemove", handleMouseMove);
-    document.addEventListener("mouseup", handleMouseUp);
-    return () => {
-      document.removeEventListener("mousemove", handleMouseMove);
-      document.removeEventListener("mouseup", handleMouseUp);
-    };
-  }, [isResizing, graphHeight]);
-  const viewModel = useMemo(
-    () =>
-      graph
-        ? toLocalGraphViewModel(graph)
-        : {
-            nodes: [],
-            edges: [],
-          },
-    [graph],
-  );
-
-  useEffect(() => {
-    setSelectedNodeId(noteId);
-  }, [noteId]);
-
-  useEffect(() => {
-    if (!canvasRef.current || viewModel.nodes.length === 0) {
-      return;
-    }
-
-    let cancelled = false;
-    let sigmaInstance: any = null;
-
-    const renderCanvas = async () => {
-      const hasWebGl2 =
-        typeof window !== "undefined" &&
-        typeof (window as Window & { WebGL2RenderingContext?: unknown }).WebGL2RenderingContext !==
-          "undefined";
-      if (!hasWebGl2) {
-        if (!cancelled) {
-          setRendererMode("fallback");
-          setRendererError(null);
-        }
-        return;
-      }
-
-      try {
-        setRendererError(null);
-        setRendererMode("sigma");
-        const [{ default: Sigma }, graphologyModule] = await Promise.all([
-          import("sigma"),
-          import("graphology"),
-        ]);
-        const Graph = graphologyModule.default;
-        const graphology = new Graph();
-        for (const node of viewModel.nodes) {
-          graphology.addNode(node.id, {
-            label: node.label,
-            size: node.id === noteId ? 11 : 8,
-            color: pickNodeColor(node.type),
-          });
-        }
-        for (const edge of viewModel.edges) {
-          if (!graphology.hasNode(edge.source) || !graphology.hasNode(edge.target)) {
-            continue;
-          }
-          graphology.addEdgeWithKey(edge.id, edge.source, edge.target, {
-            label: edge.type,
-            size: 1.2,
-            color: "#8ba296",
-          });
-        }
-
-        if (cancelled || !canvasRef.current) {
-          return;
-        }
-        sigmaInstance = new Sigma(graphology, canvasRef.current);
-        sigmaInstance.on("clickNode", ({ node }: { node: string }) => {
-          setSelectedNodeId(node);
-          const selected = viewModel.nodes.find((item) => item.id === node);
-          if (selected?.type === "note") {
-            onOpenNote(String(selected.metadata.note_id ?? selected.id));
-          }
-        });
-      } catch {
-        if (!cancelled) {
-          setRendererMode("fallback");
-          setRendererError(null);
-        }
-      }
-    };
-
-    void renderCanvas();
-
-    return () => {
-      cancelled = true;
-      sigmaInstance?.kill();
-    };
-  }, [noteId, onOpenNote, viewModel.edges, viewModel.nodes]);
 
   const handleIncludeTypeToggle = (value: string, checked: boolean) => {
     const current = new Set(filters.include_types);
@@ -200,28 +57,8 @@ export function LocalGraphPanel({
     });
   };
 
-  const nodeCount = viewModel.nodes.length;
-  const edgeCount = viewModel.edges.length;
-  const fallbackPositions = useMemo(() => {
-    const centerX = 50;
-    const centerY = 50;
-    const radius = 34;
-    const count = Math.max(viewModel.nodes.length, 1);
-    const map = new Map<string, { x: number; y: number }>();
-
-    viewModel.nodes.forEach((node, index) => {
-      if (node.id === noteId) {
-        map.set(node.id, { x: centerX, y: centerY });
-        return;
-      }
-      const angle = ((index + 1) / count) * Math.PI * 2;
-      map.set(node.id, {
-        x: centerX + Math.cos(angle) * radius,
-        y: centerY + Math.sin(angle) * radius,
-      });
-    });
-    return map;
-  }, [noteId, viewModel.nodes]);
+  const nodeCount = graph?.nodes.length ?? 0;
+  const edgeCount = graph?.edges.length ?? 0;
 
   if (isLoading) {
     return <SkeletonGraph />;
@@ -241,7 +78,6 @@ export function LocalGraphPanel({
     <section className="local-graph-panel" aria-label="Local graph panel">
       <header className="local-graph-header">
         <h2>Local graph</h2>
-        <p>{noteId}</p>
       </header>
 
       <div className="local-graph-filters">
@@ -303,123 +139,51 @@ export function LocalGraphPanel({
         <p>{edgeCount} edges</p>
       </div>
 
-      {nodeCount === 0 ? (
-        <EmptyState
-          icon="🕸️"
-          title="No connections yet"
-          description="Add wiki links or process this note to discover relationships with other notes."
-        />
-      ) : null}
+      {graph !== null && (
+        <>
+          {nodeCount === 0 ? (
+            <EmptyState
+              icon="🕸️"
+              title="No connections yet"
+              description="Add wiki links or process this note to discover relationships."
+            />
+          ) : (
+            <D3GraphCanvas
+              nodes={graph.nodes}
+              edges={graph.edges}
+              rootNodeId={noteId}
+              height={300}
+              ariaLabel="Local graph canvas"
+              onNodeClick={(node) => {
+                setSelectedNodeId(node.id);
+                if (node.type === "note") {
+                  onOpenNote(String(node.metadata.note_id ?? node.id));
+                }
+              }}
+            />
+          )}
 
-      <div className={`graph-resize-container${isResizing ? " resizing" : ""}`}>
-        <div
-          className="graph-resize-handle"
-          onMouseDown={handleResizeMouseDown}
-          role="separator"
-          aria-orientation="horizontal"
-          aria-label="Resize graph canvas"
-          aria-valuenow={graphHeight}
-          aria-valuemin={120}
-          aria-valuemax={600}
-          title="Drag to resize"
-        >
-          <div className="graph-resize-indicator" />
-        </div>
-
-        {rendererMode === "sigma" ? (
-          <div
-            ref={canvasRef}
-            className="local-graph-canvas-placeholder"
-            aria-label="Local graph canvas"
-            style={{ height: `${graphHeight}px` }}
-          />
-      ) : (
-          <svg
-            className="local-graph-canvas-placeholder local-graph-canvas-fallback"
-            aria-label="Local graph canvas"
-            viewBox="0 0 100 100"
-            role="img"
-            style={{ height: `${graphHeight}px` }}
-          >
-            {viewModel.edges.map((edge) => {
-              const source = fallbackPositions.get(edge.source);
-              const target = fallbackPositions.get(edge.target);
-              if (!source || !target) {
-                return null;
-              }
-              return (
-                <line
-                  key={edge.id}
-                  x1={source.x}
-                  y1={source.y}
-                  x2={target.x}
-                  y2={target.y}
-                  stroke="#8ba296"
-                  strokeWidth="1.2"
-                />
-              );
-            })}
-            {viewModel.nodes.map((node) => {
-              const position = fallbackPositions.get(node.id);
-              if (!position) {
-                return null;
-              }
-              return (
-                <g
-                  key={node.id}
+          <ul className="local-graph-node-list" role="listbox" aria-label="Local graph nodes">
+            {graph.nodes.map((node) => (
+              <li key={node.id}>
+                <button
+                  type="button"
+                  className={`local-graph-node-button${selectedNodeId === node.id ? " selected" : ""}`}
                   onClick={() => {
                     setSelectedNodeId(node.id);
                     if (node.type === "note") {
                       onOpenNote(String(node.metadata.note_id ?? node.id));
                     }
                   }}
-                  role="button"
-                  tabIndex={0}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter" || event.key === " ") {
-                      event.preventDefault();
-                      setSelectedNodeId(node.id);
-                      if (node.type === "note") {
-                        onOpenNote(String(node.metadata.note_id ?? node.id));
-                      }
-                    }
-                  }}
                 >
-                  <circle
-                    cx={position.x}
-                    cy={position.y}
-                    r={selectedNodeId === node.id ? 4.2 : 3.4}
-                    fill={pickNodeColor(node.type)}
-                    stroke={selectedNodeId === node.id ? "#0f4e39" : "#fff"}
-                    strokeWidth={selectedNodeId === node.id ? 1.3 : 0.8}
-                  />
-                </g>
-              );
-            })}
-          </svg>
-        )}
-      </div>
-      {rendererError ? <ErrorMessage message={rendererError} compact /> : null}
-
-      <ul className="local-graph-node-list" role="listbox" aria-label="Local graph nodes">
-        {viewModel.nodes.map((node) => (
-          <li key={node.id}>
-            <button
-              type="button"
-              className={`local-graph-node-button${selectedNodeId === node.id ? " selected" : ""}`}
-              onClick={() => {
-                setSelectedNodeId(node.id);
-                if (node.type === "note") {
-                  onOpenNote(String(node.metadata.note_id ?? node.id));
-                }
-              }}
-            >
-              <span>{node.label}</span>
-              <span>{node.type}</span>
-            </button>
-          </li>
-        ))}
-      </ul>
+                  <span>{node.label}</span>
+                  <span>{node.type}</span>
+                </button>
+              </li>
+            ))}
+          </ul>
+        </>
+      )}
     </section>
   );
 }

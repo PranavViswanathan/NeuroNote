@@ -7,6 +7,7 @@ import {
   getNote,
   queueNoteProcessing,
   saveNote,
+  fetchLocalGraph,
 } from "../../lib/api-client";
 
 vi.mock("../../lib/api-client", () => ({
@@ -14,6 +15,7 @@ vi.mock("../../lib/api-client", () => ({
   saveNote: vi.fn(),
   queueNoteProcessing: vi.fn(),
   fetchProcessingStatus: vi.fn(),
+  fetchLocalGraph: vi.fn(),
 }));
 
 vi.mock("./TipTapEditor", () => ({
@@ -236,6 +238,51 @@ describe("NoteEditor", () => {
     await waitFor(() =>
       expect(screen.getByTestId("save-status")).toHaveTextContent("Save failed"),
     );
+  });
+
+  it("switches between Write and Graph tabs", async () => {
+    vi.mocked(getNote).mockResolvedValue({
+      note_id: "note-tab-1",
+      note_title: "Tab test",
+      subject_id: "inbox",
+      tags: [],
+      is_pinned: false,
+      is_archived: false,
+      content_json: { type: "doc", content: [] },
+      content_text: "",
+      updated_at: "2026-03-01T13:00:00Z",
+      version: 1,
+    });
+    vi.mocked(saveNote).mockResolvedValue({
+      note_id: "note-tab-1",
+      saved_at: "2026-03-01T13:00:01Z",
+      version: 1,
+    });
+    vi.mocked(fetchLocalGraph).mockResolvedValue({
+      nodes: [],
+      edges: [],
+      meta: {
+        root_note_id: "note-tab-1",
+        applied_filters: { max_hops: 1, limit_nodes: 80, min_confidence: 0.35, include_types: ["note", "entity", "relation"] },
+        truncated: false,
+      },
+    });
+
+    render(<NoteEditor noteId="note-tab-1" baseUrl="http://localhost:8000" />);
+
+    await waitFor(() =>
+      expect(screen.getByRole("tab", { name: "Write" })).toBeInTheDocument(),
+    );
+
+    expect(screen.getByRole("tab", { name: "Write" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Graph" })).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByTestId("tiptap-editor")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Graph" }));
+
+    expect(screen.getByRole("tab", { name: "Graph" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Write" })).toHaveAttribute("aria-selected", "false");
+    expect(screen.queryByTestId("tiptap-editor")).not.toBeInTheDocument();
   });
 
   it("autosaves organization metadata updates", async () => {

@@ -93,14 +93,6 @@ describe("NotesWorkspace", () => {
     await waitFor(() => {
       expect(screen.getByTestId("active-note-id")).toHaveTextContent("note-a");
     });
-    await waitFor(() => {
-      expect(fetchLocalGraph).toHaveBeenCalledWith("http://localhost:8000", "note-a", {
-        max_hops: 1,
-        limit_nodes: 80,
-        min_confidence: 0.35,
-        include_types: ["note", "entity", "relation"],
-      });
-    });
   });
 
   it("creates a note and selects it", async () => {
