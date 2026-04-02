@@ -574,9 +574,9 @@ export function NoteEditor({
               disabled={isLoading}
             />
           </label>
-          <div className="note-editor-meta-grid">
-            <div className="note-editor-field">
-              <span className="sr-only">Subject</span>
+          <div className="note-properties">
+            <div className="note-property-row">
+              <span className="note-property-label">Subject</span>
               <SubjectPicker
                 value={subjectId}
                 onChange={handleSubjectChange}
@@ -584,8 +584,8 @@ export function NoteEditor({
                 disabled={isLoading}
               />
             </div>
-            <div className="note-editor-field">
-              <span className="sr-only">Tags</span>
+            <div className="note-property-row">
+              <span className="note-property-label">Tags</span>
               <TagPicker
                 value={parseTagsInput(tagsInput)}
                 onChange={(tags) => handleTagsChange(tags.join(", "))}
@@ -593,28 +593,31 @@ export function NoteEditor({
                 disabled={isLoading}
               />
             </div>
-          </div>
-          <div className="note-editor-toggle-row">
-            <label className="note-editor-toggle">
-              <input
-                aria-label="Pinned"
-                type="checkbox"
-                checked={isPinned}
-                onChange={(event) => handlePinnedChange(event.target.checked)}
-                disabled={isLoading}
-              />
-              Pinned
-            </label>
-            <label className="note-editor-toggle">
-              <input
-                aria-label="Archived"
-                type="checkbox"
-                checked={isArchived}
-                onChange={(event) => handleArchivedChange(event.target.checked)}
-                disabled={isLoading}
-              />
-              Archived
-            </label>
+            <div className="note-property-row">
+              <span className="note-property-label">Options</span>
+              <div className="note-editor-toggle-row">
+                <label className="note-editor-toggle">
+                  <input
+                    aria-label="Pinned"
+                    type="checkbox"
+                    checked={isPinned}
+                    onChange={(event) => handlePinnedChange(event.target.checked)}
+                    disabled={isLoading}
+                  />
+                  Pinned
+                </label>
+                <label className="note-editor-toggle">
+                  <input
+                    aria-label="Archived"
+                    type="checkbox"
+                    checked={isArchived}
+                    onChange={(event) => handleArchivedChange(event.target.checked)}
+                    disabled={isLoading}
+                  />
+                  Archived
+                </label>
+              </div>
+            </div>
           </div>
           <div className="note-editor-toggle-row">
             <button

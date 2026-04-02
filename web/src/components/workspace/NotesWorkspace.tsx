@@ -32,6 +32,7 @@ import {
 import type { NoteSummary } from "../../../../shared/contracts/ts/v1/note";
 import type { BacklinkItem } from "../../../../shared/contracts/ts/v1/backlink";
 import type { GlobalGraphResponse } from "../../../../shared/contracts/ts/v1/graph";
+import { getTagColor } from "../../lib/ui/tag-colors";
 
 const SELECTED_NOTE_STORAGE_KEY = "neuronote.workspace.selected";
 const RECENT_NOTES_STORAGE_KEY = "neuronote.workspace.recent";
@@ -1037,10 +1038,21 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
       >
         <span className="note-list-title">{highlightMatch(note.note_title, search)}</span>
         <span className="note-list-preview">{highlightMatch(toPreview(note.content_text), search)}</span>
-        <span className="note-list-meta-row">
-          <span className="note-list-meta">{note.subject_id}</span>
+        <div className="note-list-tags-row">
+          {note.subject_id && note.subject_id !== "inbox" && (
+            <span className="note-list-subject-badge">{note.subject_id}</span>
+          )}
+          {note.tags.slice(0, 3).map((tag) => {
+            const c = getTagColor(tag);
+            return (
+              <span key={tag} className="note-list-tag-chip"
+                style={{ backgroundColor: c.bg, color: c.text }}>
+                {tag}
+              </span>
+            );
+          })}
           <span className="note-list-date">{toDisplayDate(note.updated_at)}</span>
-        </span>
+        </div>
       </button>
     ),
     [closeContextMenu, handleNoteContextMenu, handleNoteContextMenuKeyDown, search, selectedNoteId],

@@ -317,10 +317,13 @@ describe("NoteEditor", () => {
       />,
     );
 
+    // Wait for note to load (subject badge appears and is enabled)
     await waitFor(() =>
-      expect(screen.getByLabelText("Subject")).not.toBeDisabled(),
+      expect(screen.getByRole("button", { name: "inbox" })).not.toBeDisabled(),
     );
 
+    // Enter edit mode by clicking the subject badge, then change value
+    fireEvent.click(screen.getByRole("button", { name: "inbox" }));
     fireEvent.change(screen.getByLabelText("Subject"), {
       target: { value: "ml" },
     });

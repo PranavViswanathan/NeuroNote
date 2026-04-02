@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect, useId, KeyboardEvent } from "react";
+import { getTagColor } from "../../lib/ui/tag-colors";
 
 interface TagPickerProps {
   value: string[];
@@ -71,8 +72,10 @@ export function TagPicker({ value, onChange, suggestions, disabled }: TagPickerP
         className="tag-picker-field"
         onClick={() => !disabled && inputRef.current?.focus()}
       >
-        {value.map((tag) => (
-          <span key={tag} className="tag-chip">
+        {value.map((tag) => {
+          const c = getTagColor(tag);
+          return (
+          <span key={tag} className="tag-chip" style={{ backgroundColor: c.bg, color: c.text, borderColor: `${c.text}44` }}>
             {tag}
             {!disabled && (
               <button
@@ -88,7 +91,8 @@ export function TagPicker({ value, onChange, suggestions, disabled }: TagPickerP
               </button>
             )}
           </span>
-        ))}
+          );
+        })}
         <input
           ref={inputRef}
           className="tag-picker-input"

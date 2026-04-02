@@ -11,19 +11,38 @@ describe("SubjectPicker", () => {
     vi.clearAllMocks();
   });
 
-  it("renders with current value", () => {
+  it("renders subject as a badge in display mode", () => {
     const onChange = vi.fn();
     render(
       <SubjectPicker value="inbox" onChange={onChange} suggestions={defaultSuggestions} />,
     );
-    expect(screen.getByLabelText("Subject")).toHaveValue("inbox");
+    expect(screen.getByRole("button", { name: "inbox" })).toBeInTheDocument();
+    expect(screen.queryByLabelText("Subject")).not.toBeInTheDocument();
   });
 
-  it("shows suggestions dropdown on focus", () => {
+  it("renders placeholder button when value is empty", () => {
     const onChange = vi.fn();
     render(
       <SubjectPicker value="" onChange={onChange} suggestions={defaultSuggestions} />,
     );
+    expect(screen.getByRole("button", { name: "Add subject…" })).toBeInTheDocument();
+  });
+
+  it("enters edit mode when badge is clicked", () => {
+    const onChange = vi.fn();
+    render(
+      <SubjectPicker value="inbox" onChange={onChange} suggestions={defaultSuggestions} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "inbox" }));
+    expect(screen.getByLabelText("Subject")).toBeInTheDocument();
+  });
+
+  it("shows suggestions dropdown on focus in edit mode", () => {
+    const onChange = vi.fn();
+    render(
+      <SubjectPicker value="" onChange={onChange} suggestions={defaultSuggestions} />,
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Add subject…" }));
     const input = screen.getByLabelText("Subject");
     fireEvent.focus(input);
     expect(screen.getByRole("listbox", { name: "Subject suggestions" })).toBeInTheDocument();
@@ -32,6 +51,7 @@ describe("SubjectPicker", () => {
   it("does not show dropdown when no suggestions exist and input is empty", () => {
     const onChange = vi.fn();
     render(<SubjectPicker value="" onChange={onChange} suggestions={[]} />);
+    fireEvent.click(screen.getByRole("button", { name: "Add subject…" }));
     const input = screen.getByLabelText("Subject");
     fireEvent.focus(input);
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
@@ -42,6 +62,7 @@ describe("SubjectPicker", () => {
     render(
       <SubjectPicker value="" onChange={onChange} suggestions={defaultSuggestions} />,
     );
+    fireEvent.click(screen.getByRole("button", { name: "Add subject…" }));
     const input = screen.getByLabelText("Subject");
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: "in" } });
@@ -56,6 +77,7 @@ describe("SubjectPicker", () => {
     render(
       <SubjectPicker value="" onChange={onChange} suggestions={defaultSuggestions} />,
     );
+    fireEvent.click(screen.getByRole("button", { name: "Add subject…" }));
     const input = screen.getByLabelText("Subject");
     fireEvent.focus(input);
     const option = screen.getByRole("option", { name: "inbox" });
@@ -68,6 +90,7 @@ describe("SubjectPicker", () => {
     render(
       <SubjectPicker value="" onChange={onChange} suggestions={defaultSuggestions} />,
     );
+    fireEvent.click(screen.getByRole("button", { name: "Add subject…" }));
     const input = screen.getByLabelText("Subject");
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: "projects" } });
@@ -80,6 +103,7 @@ describe("SubjectPicker", () => {
     render(
       <SubjectPicker value="" onChange={onChange} suggestions={defaultSuggestions} />,
     );
+    fireEvent.click(screen.getByRole("button", { name: "Add subject…" }));
     const input = screen.getByLabelText("Subject");
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: "newsubject" } });
@@ -91,6 +115,7 @@ describe("SubjectPicker", () => {
     render(
       <SubjectPicker value="" onChange={onChange} suggestions={defaultSuggestions} />,
     );
+    fireEvent.click(screen.getByRole("button", { name: "Add subject…" }));
     const input = screen.getByLabelText("Subject");
     fireEvent.focus(input);
     fireEvent.change(input, { target: { value: "newsubject" } });
@@ -99,11 +124,12 @@ describe("SubjectPicker", () => {
     expect(onChange).toHaveBeenCalledWith("newsubject");
   });
 
-  it("closes dropdown on Escape", () => {
+  it("closes dropdown on Escape and returns to display mode", () => {
     const onChange = vi.fn();
     render(
       <SubjectPicker value="" onChange={onChange} suggestions={defaultSuggestions} />,
     );
+    fireEvent.click(screen.getByRole("button", { name: "Add subject…" }));
     const input = screen.getByLabelText("Subject");
     fireEvent.focus(input);
     expect(screen.getByRole("listbox", { name: "Subject suggestions" })).toBeInTheDocument();
@@ -119,6 +145,7 @@ describe("SubjectPicker", () => {
         <button>Outside</button>
       </div>,
     );
+    fireEvent.click(screen.getByRole("button", { name: "Add subject…" }));
     const input = screen.getByLabelText("Subject");
     fireEvent.focus(input);
     expect(screen.getByRole("listbox", { name: "Subject suggestions" })).toBeInTheDocument();
@@ -126,7 +153,7 @@ describe("SubjectPicker", () => {
     expect(screen.queryByRole("listbox")).not.toBeInTheDocument();
   });
 
-  it("renders input as disabled when disabled prop is set", () => {
+  it("renders badge as disabled when disabled prop is set", () => {
     const onChange = vi.fn();
     render(
       <SubjectPicker
@@ -136,9 +163,8 @@ describe("SubjectPicker", () => {
         disabled
       />,
     );
-    const input = screen.getByLabelText("Subject");
-    expect(input).toBeDisabled();
-    expect(input).toHaveValue("inbox");
+    const badge = screen.getByRole("button", { name: "inbox" });
+    expect(badge).toBeDisabled();
   });
 
   it("syncs value prop change when note switches", () => {
@@ -146,10 +172,10 @@ describe("SubjectPicker", () => {
     const { rerender } = render(
       <SubjectPicker value="inbox" onChange={onChange} suggestions={defaultSuggestions} />,
     );
-    expect(screen.getByLabelText("Subject")).toHaveValue("inbox");
+    expect(screen.getByRole("button", { name: "inbox" })).toBeInTheDocument();
     rerender(
       <SubjectPicker value="work" onChange={onChange} suggestions={defaultSuggestions} />,
     );
-    expect(screen.getByLabelText("Subject")).toHaveValue("work");
+    expect(screen.getByRole("button", { name: "work" })).toBeInTheDocument();
   });
 });
