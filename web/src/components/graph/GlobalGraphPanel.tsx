@@ -33,6 +33,7 @@ export function GlobalGraphPanel({
   onOpenNote,
 }: GlobalGraphPanelProps) {
   const [nodeSearch, setNodeSearch] = useState("");
+  const [canvasWidth, setCanvasWidth] = useState(800);
   const [canvasHeight, setCanvasHeight] = useState(600);
   const canvasAreaRef = useRef<HTMLDivElement>(null);
 
@@ -40,8 +41,10 @@ export function GlobalGraphPanel({
     const el = canvasAreaRef.current;
     if (!el) return;
     const observer = new ResizeObserver((entries) => {
-      const h = entries[0]?.contentRect.height;
-      if (h && h > 0) setCanvasHeight(h);
+      const rect = entries[0]?.contentRect;
+      if (!rect) return;
+      if (rect.width > 0) setCanvasWidth(rect.width);
+      if (rect.height > 0) setCanvasHeight(rect.height);
     });
     observer.observe(el);
     return () => observer.disconnect();
@@ -49,22 +52,14 @@ export function GlobalGraphPanel({
 
   const normalizedSearch = nodeSearch.trim().toLowerCase();
 
-  const visibleNodes = graph
-    ? normalizedSearch
-      ? graph.nodes.filter((n) => n.label.toLowerCase().includes(normalizedSearch))
-      : graph.nodes
-    : [];
+  // Find the first node whose label matches; highlight and zoom to it.
+  // All nodes and edges stay visible so adjacency (related concepts) is preserved.
+  const highlightNodeId = normalizedSearch && graph
+    ? graph.nodes.find((n) => n.label.toLowerCase().includes(normalizedSearch))?.id
+    : undefined;
 
-  const visibleNodeIds = new Set(visibleNodes.map((n) => n.id));
-
-  const visibleEdges = graph
-    ? graph.edges.filter(
-        (e) => visibleNodeIds.has(String(e.source)) && visibleNodeIds.has(String(e.target)),
-      )
-    : [];
-
-  const nodeCount = visibleNodes.length;
-  const edgeCount = visibleEdges.length;
+  const nodeCount = graph?.nodes.length ?? 0;
+  const edgeCount = graph?.edges.length ?? 0;
 
   return (
     <div className="global-graph-view" aria-label="Global graph view">
@@ -132,17 +127,15 @@ export function GlobalGraphPanel({
         ) : !graph || nodeCount === 0 ? (
           <EmptyState
             icon="🕸️"
-            title={normalizedSearch ? "No matching nodes" : "No notes yet"}
-            description={
-              normalizedSearch
-                ? "Try a different search term."
-                : "Start creating notes to see your knowledge graph."
-            }
+            title="No notes yet"
+            description="Start creating notes to see your knowledge graph."
           />
         ) : (
           <D3GraphCanvas
-            nodes={visibleNodes}
-            edges={visibleEdges}
+            nodes={graph.nodes}
+            edges={graph.edges}
+            highlightNodeId={highlightNodeId}
+            width={canvasWidth}
             height={canvasHeight}
             onNodeClick={(node) => {
               if (node.type === "note") onOpenNote(String(node.metadata.note_id ?? node.id));

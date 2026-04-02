@@ -9,7 +9,9 @@ interface D3GraphCanvasProps {
   nodes: LocalGraphNode[];
   edges: LocalGraphEdge[];
   rootNodeId?: string;
+  highlightNodeId?: string;
   onNodeClick: (node: LocalGraphNode) => void;
+  width?: number;
   height: number;
   ariaLabel?: string;
 }
@@ -29,20 +31,28 @@ export function D3GraphCanvas({
   nodes,
   edges,
   rootNodeId,
+  highlightNodeId,
   onNodeClick,
+  width: widthProp,
   height,
   ariaLabel,
 }: D3GraphCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null);
+  // Stable refs so the pan-to-highlight effect can access current sim state
+  const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
+  const simNodesRef = useRef<SimNode[]>([]);
 
+  // Main effect: rebuild simulation whenever nodes/edges/dimensions change
   useEffect(() => {
     if (!svgRef.current) return;
 
-    const { width: svgWidth } = svgRef.current.getBoundingClientRect() ?? { width: 600 };
-    const width = svgWidth || 600;
+    // Re-measure each time the effect runs — SVG is in the DOM by now
+    const rect = svgRef.current.getBoundingClientRect();
+    const width = widthProp ?? (rect.width > 0 ? rect.width : 800);
 
-    const simNodes: SimNode[] = nodes.map((n) => ({ ...n, x: 0, y: 0, vx: 0, vy: 0 }));
+    const simNodes: SimNode[] = nodes.map((n) => ({ ...n }));
     const simEdges: SimEdge[] = edges.map((e) => ({ ...e }));
+    simNodesRef.current = simNodes; // D3 mutates these in-place; ref stays current
 
     const svg = d3.select(svgRef.current);
     svg.selectAll("*").remove();
@@ -68,40 +78,37 @@ export function D3GraphCanvas({
 
     nodeSelection.each(function (d) {
       const isRoot = rootNodeId === d.id;
-      const radius = isRoot ? 12 : 8;
+      const isHighlight = highlightNodeId === d.id;
+      const radius = isHighlight ? 14 : isRoot ? 12 : 8;
 
       d3.select(this)
         .append("circle")
         .attr("r", radius)
-        .attr("fill", pickNodeColor(d.type))
-        .attr("stroke", isRoot ? "#0f4e39" : "#fff")
-        .attr("stroke-width", isRoot ? 2 : 1);
+        .attr("fill", isHighlight ? "#e07b1a" : pickNodeColor(d.type))
+        .attr("stroke", isHighlight ? "#b85e10" : isRoot ? "#0f4e39" : "#fff")
+        .attr("stroke-width", isHighlight ? 3 : isRoot ? 2 : 1);
 
       d3.select(this)
         .append("text")
         .attr("dy", "0.35em")
         .attr("x", radius + 4)
-        .attr("font-size", "10")
-        .attr("fill", "#6c6f75")
+        .attr("font-size", isHighlight ? "11" : "10")
+        .attr("font-weight", isHighlight ? "600" : "normal")
+        .attr("fill", isHighlight ? "#7a3d0a" : "#6c6f75")
         .attr("pointer-events", "none")
-        .text(d.label.length > 20 ? d.label.slice(0, 20) : d.label);
+        .text(d.label.length > 24 ? d.label.slice(0, 24) : d.label);
     });
 
     nodeSelection.on("click", (_event, d) => {
       const original = nodes.find((n) => n.id === d.id);
-      if (original) {
-        onNodeClick(original);
-      }
+      if (original) onNodeClick(original);
     });
 
     const simulation = d3
       .forceSimulation<SimNode>(simNodes)
       .force(
         "link",
-        d3
-          .forceLink<SimNode, SimEdge>(simEdges)
-          .id((d) => d.id)
-          .distance(90),
+        d3.forceLink<SimNode, SimEdge>(simEdges).id((d) => d.id).distance(90),
       )
       .force("charge", d3.forceManyBody<SimNode>().strength(-200))
       .force("center", d3.forceCenter(width / 2, height / 2))
@@ -113,7 +120,6 @@ export function D3GraphCanvas({
         .attr("y1", (d) => (d.source as SimNode).y ?? 0)
         .attr("x2", (d) => (d.target as SimNode).x ?? 0)
         .attr("y2", (d) => (d.target as SimNode).y ?? 0);
-
       nodeSelection.attr("transform", (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
     });
 
@@ -144,9 +150,16 @@ export function D3GraphCanvas({
       });
 
     svg.call(zoom);
+    zoomRef.current = zoom;
 
+    // After simulation settles, zoom to fit all nodes in view.
+    // Re-measure the SVG here so fitAll uses the actual rendered size.
     const fitAll = () => {
       if (simNodes.length === 0) return;
+      const r = svgRef.current?.getBoundingClientRect();
+      const w = r && r.width > 0 ? r.width : width;
+      const h = r && r.height > 0 ? r.height : height;
+
       let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
       for (const n of simNodes) {
         const x = n.x ?? 0;
@@ -159,10 +172,10 @@ export function D3GraphCanvas({
       const PADDING = 48;
       const boxW = maxX - minX + PADDING * 2;
       const boxH = maxY - minY + PADDING * 2;
-      const scale = Math.min(width / boxW, height / boxH, 1.5);
-      const tx = width / 2 - scale * ((minX + maxX) / 2);
-      const ty = height / 2 - scale * ((minY + maxY) / 2);
-      svg.call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+      const scale = Math.min(w / boxW, h / boxH, 1.5);
+      const tx = w / 2 - scale * ((minX + maxX) / 2);
+      const ty = h / 2 - scale * ((minY + maxY) / 2);
+      svg.transition().duration(300).call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
     };
 
     simulation.on("end", fitAll);
@@ -171,12 +184,30 @@ export function D3GraphCanvas({
       simulation.stop();
       svg.on(".zoom", null);
     };
-  }, [nodes, edges, rootNodeId, onNodeClick, height]);
+  }, [nodes, edges, rootNodeId, highlightNodeId, onNodeClick, widthProp, height]);
+
+  // Pan to the highlighted node whenever it changes (without restarting simulation)
+  useEffect(() => {
+    if (!highlightNodeId || !svgRef.current || !zoomRef.current) return;
+    const node = simNodesRef.current.find((n) => n.id === highlightNodeId);
+    if (!node || node.x == null || node.y == null) return;
+
+    const r = svgRef.current.getBoundingClientRect();
+    const w = r.width > 0 ? r.width : 800;
+    const h = r.height > 0 ? r.height : 600;
+    const scale = 2;
+    const tx = w / 2 - scale * node.x;
+    const ty = h / 2 - scale * node.y;
+    d3.select(svgRef.current)
+      .transition()
+      .duration(400)
+      .call(zoomRef.current.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+  }, [highlightNodeId]);
 
   return (
     <svg
       ref={svgRef}
-      width="100%"
+      width={widthProp ?? "100%"}
       height={height}
       aria-label={ariaLabel}
       style={{ cursor: "grab", display: "block", background: "transparent" }}
