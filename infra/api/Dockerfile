@@ -28,4 +28,4 @@ COPY . .
 ENTRYPOINT ["api-entrypoint.sh"]
 # Run migrations then start the server. Alembic is idempotent so running it
 # on every container start is safe and means deploys never need a manual step.
-CMD ["sh", "-c", "uv run --project api --no-sync alembic -c api/alembic.ini upgrade head && uv run --project api --no-sync uvicorn app.main:app --app-dir api/src --host 0.0.0.0 --port 8000"]
+CMD ["sh", "-c", "uv run --project api --no-sync alembic -c api/alembic.ini upgrade head && uv run --project api --no-sync uvicorn app.main:app --app-dir api/src --host 0.0.0.0 --port ${PORT:-8000}"]
