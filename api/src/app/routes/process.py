@@ -1,5 +1,9 @@
+import logging
+
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
+
+_LOG = logging.getLogger(__name__)
 
 from app.core.job_store import (
     create_or_get_job,
@@ -29,6 +33,7 @@ def _run_processing_job(*, job_id: str, payload: ProcessNoteRequest) -> None:
         mark_job_failed(job_id, error=str(exc))
         return
     except Exception as exc:  # pragma: no cover - defensive runtime guard
+        _LOG.exception("Processing job %s failed: %s", job_id, exc)
         mark_job_failed(job_id, error=str(exc))
         return
 
