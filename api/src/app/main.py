@@ -89,16 +89,10 @@ app = FastAPI(title="NeuroNote API", version="0.1.0", lifespan=lifespan)
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)  # type: ignore[arg-type]
 
-_default_origins = "http://localhost:3000,http://127.0.0.1:3000"
-_allowed_origins = [
-    o.strip()
-    for o in os.environ.get("ALLOWED_ORIGINS", _default_origins).split(",")
-    if o.strip()
-]
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=_allowed_origins,
-    allow_credentials=True,
+    allow_origins=["*"],
+    allow_credentials=False,
     allow_methods=["*"],
     allow_headers=["*"],
 )
