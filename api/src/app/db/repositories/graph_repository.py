@@ -36,7 +36,11 @@ class GraphRepository:
         items: list[str] = []
         for key, value in properties.items():
             self._validate_label(key)
-            items.append(f"{key}: {json.dumps(value)}")
+            # Escape % so SQLAlchemy's text() doesn't interpret %(name)s patterns
+            # in user content as bind parameters. SQLAlchemy converts %% → % before
+            # sending to PostgreSQL, so the stored value is unchanged.
+            json_value = json.dumps(value).replace("%", "%%")
+            items.append(f"{key}: {json_value}")
         return "{" + ", ".join(items) + "}"
 
     def ensure_graph_exists(self, *, graph_name: str = "neuronote") -> None:
