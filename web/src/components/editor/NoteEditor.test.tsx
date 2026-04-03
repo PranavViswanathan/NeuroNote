@@ -317,7 +317,13 @@ describe("NoteEditor", () => {
       />,
     );
 
-    // Wait for note to load (subject badge appears and is enabled)
+    // Wait for note to load
+    await screen.findByLabelText("Note title");
+
+    // Open the options dropdown to expose the SubjectPicker
+    fireEvent.click(screen.getByRole("button", { name: "Note options" }));
+
+    // Wait for the subject badge to appear and be enabled
     await waitFor(() =>
       expect(screen.getByRole("button", { name: "inbox" })).not.toBeDisabled(),
     );

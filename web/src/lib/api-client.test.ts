@@ -57,11 +57,14 @@ describe("saveNote", () => {
       makeResponse({ note_id: "note-1", saved_at: "2026-01-01T00:00:01Z", version: 2 }),
     );
     await saveNote("http://localhost:8000", basePayload);
-    expect(mockFetch).toHaveBeenCalledWith("http://localhost:8000/v1/notes/note-1", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify(basePayload),
-    });
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:8000/v1/notes/note-1",
+      expect.objectContaining({
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(basePayload),
+      }),
+    );
   });
 
   it("returns parsed SaveNoteResponse", async () => {
@@ -108,7 +111,10 @@ describe("getNote", () => {
   it("sends GET to correct URL", async () => {
     mockFetch.mockReturnValue(makeResponse(noteResponse));
     await getNote("http://localhost:8000", "note-2");
-    expect(mockFetch).toHaveBeenCalledWith("http://localhost:8000/v1/notes/note-2");
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:8000/v1/notes/note-2",
+      expect.any(Object),
+    );
   });
 
   it("returns GetNoteResponse", async () => {
@@ -171,9 +177,10 @@ describe("deleteNote", () => {
   it("sends DELETE and resolves on 204", async () => {
     mockFetch.mockReturnValue(makeNoContentResponse(204));
     await expect(deleteNote("http://localhost:8000", "note-3")).resolves.toBeUndefined();
-    expect(mockFetch).toHaveBeenCalledWith("http://localhost:8000/v1/notes/note-3", {
-      method: "DELETE",
-    });
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:8000/v1/notes/note-3",
+      expect.objectContaining({ method: "DELETE" }),
+    );
   });
 
   it("throws ApiClientError on 404", async () => {
@@ -228,7 +235,10 @@ describe("fetchNoteBacklinks", () => {
   it("constructs correct URL", async () => {
     mockFetch.mockReturnValue(makeResponse({ note_id: "note-1", items: [] }));
     await fetchNoteBacklinks("http://localhost:8000", "note-1");
-    expect(mockFetch).toHaveBeenCalledWith("http://localhost:8000/v1/notes/note-1/backlinks");
+    expect(mockFetch).toHaveBeenCalledWith(
+      "http://localhost:8000/v1/notes/note-1/backlinks",
+      expect.any(Object),
+    );
   });
 });
 

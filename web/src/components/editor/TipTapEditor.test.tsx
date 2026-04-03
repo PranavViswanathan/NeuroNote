@@ -32,7 +32,7 @@ describe("TipTapEditor", () => {
     expect(editor.querySelector(".ProseMirror")).not.toBeNull();
   });
 
-  it("renders the core block command buttons", async () => {
+  it("renders the core block command buttons in the palette", async () => {
     render(
       <TipTapEditor
         value={{ type: "doc", content: [{ type: "paragraph", content: [] }] }}
@@ -41,14 +41,24 @@ describe("TipTapEditor", () => {
       />,
     );
 
-    await screen.findByRole("button", { name: "Paragraph" });
-    expect(screen.getByRole("button", { name: "H1" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "H2" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "H3" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Checklist" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Math Inline" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Math Block" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Image" })).toBeInTheDocument();
+    const editor = await screen.findByTestId("tiptap-editor");
+    const proseMirror = editor.querySelector(".ProseMirror");
+    expect(proseMirror).not.toBeNull();
+    if (!proseMirror) throw new Error("Missing ProseMirror editor");
+
+    // Open the command palette via Ctrl+K
+    fireEvent.keyDown(proseMirror, { key: "k", ctrlKey: true });
+
+    // Palette items are rendered with role="option" inside the listbox.
+    // Only the first MAX_COMMAND_ITEMS (8) are shown without filtering.
+    await screen.findByRole("option", { name: "Paragraph" });
+    expect(screen.getByRole("option", { name: "H1" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "H2" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "H3" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Bullet List" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Numbered List" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Checklist" })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "Quote" })).toBeInTheDocument();
     expect(screen.getByText("No nesting action available for current block")).toBeInTheDocument();
   });
 
