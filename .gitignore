@@ -38,6 +38,17 @@ api/dev.db
 .vscode/
 .idea/
 
+# Logs
+*.log
+
+# SQLite databases
+*.sqlite
+*.sqlite3
+
+# Next.js / Turbopack
+.turbo/
+web/.eslintcache
+
 # Legacy tracked tool dirs (keep untracked)
 /bin/
 /lib/

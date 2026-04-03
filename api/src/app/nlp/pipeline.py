@@ -24,7 +24,7 @@ _LOGGER = logging.getLogger(__name__)
 # Module-level LRU cache for NLP extraction results.
 # Keyed by (note_id, content_hash) — a changed note produces a new hash, so stale
 # entries become unreachable and are evicted naturally without explicit invalidation.
-_EXTRACTION_CACHE: OrderedDict[tuple[str, str], NoteExtractionResult] = OrderedDict()
+_EXTRACTION_CACHE: OrderedDict[str, NoteExtractionResult] = OrderedDict()
 _EXTRACTION_CACHE_MAX = 512
 
 

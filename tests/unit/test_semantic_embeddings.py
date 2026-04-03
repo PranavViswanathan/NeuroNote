@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 from app.nlp.semantic_embeddings import SemanticEmbedder, build_semantic_embedding
 

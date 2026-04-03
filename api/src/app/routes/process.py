@@ -3,8 +3,6 @@ import logging
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request, status
 from sqlalchemy.orm import Session
 
-_LOG = logging.getLogger(__name__)
-
 from app.core.job_store import (
     create_or_get_job,
     get_job,
@@ -23,6 +21,7 @@ from shared.contracts.python.v1.process import (
 )
 
 router = APIRouter()
+_LOG = logging.getLogger(__name__)
 
 
 def _run_processing_job(*, job_id: str, payload: ProcessNoteRequest) -> None:

@@ -138,7 +138,7 @@ class LocalGraphService:
             .order_by(Block.note_id.asc(), Block.block_index.asc())
         ).all()
         blocks_by_note_id: dict[str, list[BlockTextInput]] = {}
-        for r in block_rows:
+        for r in block_rows:  # type: ignore[assignment]
             blocks_by_note_id.setdefault(str(r[0]), []).append(
                 BlockTextInput(block_index=int(r[1]), content_text=str(r[2]))
             )

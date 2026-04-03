@@ -168,7 +168,7 @@ class SLMExtractor:
             )
             return None
 
-        raw = message.content[0].text.strip()
+        raw = message.content[0].text.strip()  # type: ignore[union-attr]
         _LOGGER.debug("SLM raw response (%d chars): %s", len(raw), raw[:200])
 
         if not raw:

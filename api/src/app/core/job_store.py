@@ -104,7 +104,7 @@ def _pg_create_or_get_job(*, note_id: str, content_hash: str) -> tuple[ProcessSt
             if existing_row is not None:
                 return ProcessStatusResponse(
                     job_id=str(existing_row[0]),
-                    status=str(existing_row[1]),
+                    status=str(existing_row[1]),  # type: ignore[arg-type]
                     error=str(existing_row[2]) if existing_row[2] else None,
                     created_at=str(existing_row[3]),
                     updated_at=str(existing_row[4]),
@@ -149,7 +149,7 @@ def _pg_transition_job(*, job_id: str, status: str, error: str | None) -> Proces
         return None
     return ProcessStatusResponse(
         job_id=str(row[0]),
-        status=str(row[1]),
+        status=str(row[1]),  # type: ignore[arg-type]
         error=str(row[2]) if row[2] else None,
         created_at=str(row[3]),
         updated_at=str(row[4]),
@@ -172,7 +172,7 @@ def _pg_get_job(job_id: str) -> ProcessStatusResponse | None:
         return None
     return ProcessStatusResponse(
         job_id=str(row[0]),
-        status=str(row[1]),
+        status=str(row[1]),  # type: ignore[arg-type]
         error=str(row[2]) if row[2] else None,
         created_at=str(row[3]),
         updated_at=str(row[4]),

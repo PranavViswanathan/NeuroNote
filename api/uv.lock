@@ -733,7 +733,7 @@ requires-dist = [
     { name = "sentence-transformers", specifier = ">=3.0.0,<4.0.0" },
     { name = "slowapi", specifier = ">=0.1.9,<1.0.0" },
     { name = "sqlalchemy", specifier = ">=2.0.40,<3.0.0" },
-    { name = "torch", specifier = ">=2.0.0", index = "https://download.pytorch.org/whl/cpu" },
+    { name = "torch", specifier = ">=2.0.0,<3.0.0", index = "https://download.pytorch.org/whl/cpu" },
     { name = "uvicorn", specifier = ">=0.30.0,<1.0.0" },
 ]
 

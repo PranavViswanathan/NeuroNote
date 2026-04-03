@@ -155,7 +155,7 @@ class ConceptInsightService:
                 messages=[{"role": "user", "content": user_msg}],
                 timeout=12.0,
             )
-            raw = msg.content[0].text.strip()
+            raw = msg.content[0].text.strip()  # type: ignore[union-attr]
             # Strip markdown fences if the model wraps the JSON
             raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.S).strip()
             return json.loads(raw)  # type: ignore[no-any-return]

@@ -24,8 +24,8 @@ def get_note_connections(
             limit=limit,
             min_strength=min_strength,
         )
-    except Exception as exc:
+    except Exception:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to compute connections: {exc}",
-        ) from exc
+            detail="Failed to compute connections",
+        )

@@ -50,7 +50,7 @@ def build_semantic_embedding(text: str) -> list[float] | None:
         return None
 
     try:
-        vector = model.encode(text, normalize_embeddings=True)  # type: ignore[union-attr]
+        vector = model.encode(text, normalize_embeddings=True)  # type: ignore[attr-defined]
         return vector.tolist()
     except Exception as exc:
         _LOGGER.warning("Semantic embedding failed: %s", exc)

@@ -66,7 +66,6 @@ REQUIRED_FILES = [
     "api/src/app/routes/export.py",
     "api/src/app/routes/graph.py",
     "api/src/app/nlp/config.py",
-    "api/src/app/nlp/entities.py",
     "api/src/app/nlp/keyphrases.py",
     "api/src/app/nlp/relations.py",
     "api/src/app/nlp/embeddings.py",
