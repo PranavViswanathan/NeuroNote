@@ -148,7 +148,7 @@ class SLMExtractor:
             client = anthropic.Anthropic(api_key=self._api_key or None)
             message = client.messages.create(
                 model=self._model,
-                max_tokens=1024,
+                max_tokens=2048,
                 system=system,
                 messages=[{"role": "user", "content": user}],
                 timeout=self._timeout_s,
