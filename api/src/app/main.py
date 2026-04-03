@@ -131,7 +131,7 @@ async def api_key_middleware(request: Request, call_next: object) -> object:
     Health and docs endpoints are always public.
     """
     required_key = os.environ.get("API_KEY", "").strip()
-    if not required_key or request.url.path in _PUBLIC_PATHS:
+    if not required_key or request.url.path in _PUBLIC_PATHS or request.method == "OPTIONS":
         return await call_next(request)  # type: ignore[operator]
 
     provided_key = request.headers.get("X-Api-Key", "")
