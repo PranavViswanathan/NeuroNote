@@ -54,7 +54,7 @@ Every note save triggers background entity and relation extraction. Three profil
 |---|---|
 | `rule-only` | Dictionary matching + deterministic regex (default, no external dependencies) |
 | `hybrid-spacy` | Dictionary + spaCy NER + regex fallback |
-| `llm-enhanced` | Claude API — highest quality, requires `ANTHROPIC_API_KEY` |
+| `llm-enhanced` | Any OpenAI-compatible LLM — highest quality, requires `LLM_API_KEY` |
 
 Set via environment variable in `infra/docker-compose.yml` or on the command line:
 
@@ -93,7 +93,7 @@ make compose-up
 When you click any non-note node (concept, entity, relation) in either graph view, a panel opens showing:
 
 1. **Related Notes** — all notes mentioning the concept, with snippets, clickable to open
-2. **AI Insight** — a synthesis paragraph drawn *only* from your notes (requires `ANTHROPIC_API_KEY`)
+2. **AI Insight** — a synthesis paragraph drawn *only* from your notes (requires `LLM_API_KEY`)
 3. **Further Learning** — AI-suggested reputable external resources (clearly labeled; verify before visiting)
 
 Without `LLM_API_KEY`, notes list and snippets still render — the insight section shows a config hint.
@@ -387,7 +387,7 @@ unzip -l demo-note.zip
 | Symptom | Fix |
 |---|---|
 | `relation "note_assets" does not exist` | Run `make compose-migrate` |
-| Insight section shows config hint | Set `ANTHROPIC_API_KEY` in compose env |
+| Insight section shows config hint | Set `LLM_API_KEY` in compose env |
 | spaCy model not found | Install the model inside the API container or use `rule-only` profile |
 | AGE concurrent lock error in logs | Known AGE issue with parallel note processing — non-critical, retries succeed |
 | Port already in use | Use `WEB_PORT=3001 API_PORT=8001 make compose-up` |

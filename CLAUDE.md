@@ -46,7 +46,7 @@ Web: `http://localhost:3000` · API: `http://localhost:8000`
 - `NoteNlpPipeline` in `pipeline.py` — entry point; reads `NLP_EXTRACTION_PROFILE` env var
 - Three profiles: `rule-only` (default), `hybrid-spacy`, `llm-enhanced`
 - LRU extraction cache keyed by `content_hash` — notes with identical text share one result; backed by `nlp_extraction_cache` DB table for cross-restart persistence
-- `SLMExtractor` (`slm_extractor.py`) wraps Claude API for `llm-enhanced` profile — uses sync `anthropic.Anthropic`
+- `SLMExtractor` (`slm_extractor.py`) wraps the LLM API for `llm-enhanced` profile — uses sync `LLMClient`
 - `ConceptMetaClassifier` (`concept_meta.py`) — called after each note's graph sync; uses the LLM to identify `SYNONYM_OF` pairs (e.g. "ML" ↔ "machine learning") and `SUBTOPIC_OF` pairs (e.g. "backpropagation" → "neural networks") among newly extracted concepts; writes edges to AGE; uses sync `LLMClient`. Guards against re-classification via `concept_registry.meta_classified_at` — already-classified concepts are always skipped.
 - `ConceptInsightService` (`services/concept_insight_service.py`) calls the LLM for on-demand insight generation — uses async `AsyncLLMClient`; cached in `concept_insight_cache`
 
