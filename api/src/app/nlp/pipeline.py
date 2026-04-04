@@ -92,6 +92,14 @@ class NoteNlpPipeline:
             entity_mentions=[],
         )
 
+    @property
+    def extraction_profile(self) -> str:
+        return self._settings.extraction_profile
+
+    @property
+    def settings(self) -> NlpSettings:
+        return self._settings
+
     def get_last_stage_timings(self) -> dict[str, float]:
         return dict(self._last_stage_timings)
 

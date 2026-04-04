@@ -18,6 +18,7 @@ from app.db.repositories.graph_repository import GraphRepository
 from app.db.repositories.note_repository import NoteRepository
 from app.nlp.concept_meta import ConceptMetaClassifier
 from app.nlp.concept_registry import get_known_concepts, register_concepts
+from app.nlp.config import get_nlp_settings
 from app.nlp.pipeline import NoteNlpPipeline
 from app.nlp.resolution.resolver import CanonicalAlias, EntityResolver
 from app.nlp.types import (
@@ -222,7 +223,7 @@ class NoteProcessingService:
         known = get_known_concepts()
         dictionary_terms = base_terms + [c for c in known if c not in set(t.lower() for t in base_terms)]
 
-        profile = self._pipeline._settings.extraction_profile
+        profile = getattr(self._pipeline, "extraction_profile", "rule-only")
         cached_result = self._try_load_nlp_cache(snapshot.content_hash, profile)
         if cached_result is not None:
             _LOGGER.debug(
@@ -290,7 +291,7 @@ class NoteProcessingService:
         """Classify synonym/subtopic edges for new concepts (meta_classified_at IS NULL only).
         Runs in its own session after graph sync commits.
         """
-        cfg = self._pipeline._settings
+        cfg = getattr(self._pipeline, "settings", None) or get_nlp_settings()
         if not cfg.llm_api_key:
             return
 

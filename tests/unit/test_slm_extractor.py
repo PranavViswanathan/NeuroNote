@@ -71,12 +71,7 @@ def test_parse_result_confidence_clamped() -> None:
 
 # ── SLMExtractor ─────────────────────────────────────────────────────────────
 
-def _make_mock_anthropic_response(text: str) -> MagicMock:
-    content_block = MagicMock()
-    content_block.text = text
-    message = MagicMock()
-    message.content = [content_block]
-    return message
+_BASE_URL = "https://api.anthropic.com/v1/"
 
 
 def test_slm_extractor_returns_result_on_success() -> None:
@@ -85,15 +80,10 @@ def test_slm_extractor_returns_result_on_success() -> None:
         "relations": [],
         "summary": "Transformers use self-attention."
     }"""
-    mock_client = MagicMock()
-    mock_client.messages.create.return_value = _make_mock_anthropic_response(good_json)
+    extractor = SLMExtractor(model="claude-haiku-4-5-20251001", api_key="test-key", base_url=_BASE_URL)
 
-    mock_anthropic_module = MagicMock()
-    mock_anthropic_module.Anthropic.return_value = mock_client
-
-    extractor = SLMExtractor(model="claude-haiku-4-5-20251001", api_key="test-key")
-
-    with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
+    with patch("app.nlp.slm_extractor.LLMClient") as mock_cls:
+        mock_cls.return_value.complete.return_value = good_json
         result = extractor.extract(
             title="Transformers",
             content="Transformers use self-attention for sequence modelling.",
@@ -106,32 +96,26 @@ def test_slm_extractor_returns_result_on_success() -> None:
 
 
 def test_slm_extractor_returns_none_on_api_error() -> None:
-    extractor = SLMExtractor(model="claude-haiku-4-5-20251001", api_key="test-key")
+    extractor = SLMExtractor(model="claude-haiku-4-5-20251001", api_key="test-key", base_url=_BASE_URL)
 
-    mock_anthropic_module = MagicMock()
-    mock_anthropic_module.Anthropic.return_value.messages.create.side_effect = RuntimeError("rate limit")
-
-    with patch.dict("sys.modules", {"anthropic": mock_anthropic_module}):
+    with patch("app.nlp.slm_extractor.LLMClient") as mock_cls:
+        mock_cls.return_value.complete.return_value = None
         result = extractor.extract(title="Any", content="Any content", known_concepts=[])
 
     assert result is None
 
 
-def test_slm_extractor_returns_none_when_anthropic_not_installed() -> None:
-    import sys
+def test_slm_extractor_strips_markdown_fences() -> None:
+    json_body = '{"concepts": [{"text": "attention", "confidence": 0.9}], "relations": [], "summary": "Attention is key."}'
+    fenced = f"```json\n{json_body}\n```"
+    extractor = SLMExtractor(model="claude-haiku-4-5-20251001", api_key="test-key", base_url=_BASE_URL)
 
-    extractor = SLMExtractor(model="claude-haiku-4-5-20251001", api_key="test-key")
+    with patch("app.nlp.slm_extractor.LLMClient") as mock_cls:
+        mock_cls.return_value.complete.return_value = fenced
+        result = extractor.extract(title="Attention", content="Attention is key.", known_concepts=[])
 
-    # Temporarily remove anthropic from sys.modules and block re-import
-    saved = sys.modules.pop("anthropic", None)
-    try:
-        with patch("builtins.__import__", side_effect=ImportError("No module named 'anthropic'")):
-            result = extractor.extract(title="Any", content="Any content", known_concepts=[])
-    finally:
-        if saved is not None:
-            sys.modules["anthropic"] = saved
-
-    assert result is None
+    assert result is not None
+    assert result.concepts[0].text == "attention"
 
 
 # ── llm-enhanced pipeline branch ─────────────────────────────────────────────
