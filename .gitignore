@@ -61,3 +61,8 @@ web/.eslintcache
 /docs/plan.md
 /docs/retrospective_learnings.md
 /docs/ui_ux_improvement_spec.md
+
+# Misc
+*.bak
+*.tmp
+/.claude/*
