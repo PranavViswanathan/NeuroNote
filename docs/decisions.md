@@ -4,30 +4,42 @@ This file captures implementation notes and additions that are useful context bu
 
 Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisions`.
 
-## 2026-03-29 (Validated Baseline Refresh)
-- Re-ran the compose-first release gates against the current E11 graph/NLP baseline:
-  - `compose-up`
-  - `compose-migrate`
-  - `compose-bootstrap-extensions`
-  - `compose-check`
-  - `compose-test`
-  - `compose-test-db`
-  - web `lint`, `typecheck`, and `test`
-- Validation outcomes:
-  - Python suites: `156 passed, 5 skipped`
-  - DB extension/vector suite: `5 passed`
-  - Web suite: `87 passed`
-  - Live API smoke succeeded for `/health`, note save, processing completion, and local graph payload generation.
-- Fixed one real regression discovered during the baseline pass:
-  - Hybrid spotting merge logic was allowing lower-quality contained spans from repeated lowercase token fallback to survive alongside better phrase spans.
-  - Example bad behavior: `graph reasoning` could yield extra mention spans for `graph` and `reasoning`.
-  - Fix: accept longer spans first and discard contained spans after a better span is accepted.
-- Fixed one follow-on lowercase recall issue:
-  - `eren explores ...` was incorrectly treated as a lowercase entity phrase, which suppressed the intended repeated single-token entity recall for `eren`.
-  - Fix: expanded lowercase action-token filtering to reject `explore` / `explores` phrase windows.
-- Environment note:
-  - Host-side `curl http://127.0.0.1:8000/...` from the Codex sandbox was unreliable during this validation pass even while compose services were healthy.
-  - The live smoke gate was therefore verified from inside the running `api` container via loopback (`127.0.0.1:8000`), which exercised the same long-running FastAPI process successfully.
+## 2026-04-03 (AI Caching, Password Protection, Concept Meta-Layer)
+
+### AI Content Caching
+Two new DB tables (migration `0011`) persist AI-generated output across server restarts:
+
+- **`concept_insight_cache`** — caches Claude concept insights keyed by `(concept_label, content_digest)`. The digest is SHA-256 of sorted `note_id:content_hash` pairs; auto-stale when any referenced note changes. Uses PostgreSQL `INSERT ON CONFLICT DO UPDATE` so the cache remains a single row per concept label.
+- **`nlp_extraction_cache`** — caches SLM/NLP extraction results keyed by `(content_hash, extraction_profile)`. Profile is stored so a change to `NLP_EXTRACTION_PROFILE` automatically misses the cache and forces fresh extraction.
+
+Both caches are silently skipped on SQLite (dev/test without Postgres).
+
+### Password Protection
+Simple login gate for self-hosted deployments. Design rationale:
+- **Browser session cookie** (no `maxAge`) was chosen over JWTs or DB sessions because the use case is single-user self-hosting; a session that dies when the browser closes is the right UX.
+- **HMAC-SHA256 token** instead of a random session ID avoids a DB session table; the token is deterministic from `(SESSION_SECRET, APP_PASSWORD)` so the API can validate it statelessly.
+- **Next.js Edge Middleware** (`web/src/middleware.ts`) runs at the CDN/edge layer before any page or API route, providing the earliest possible intercept point with minimal latency.
+- **`${APP_PASSWORD:+true}` in docker-compose** uses POSIX shell parameter expansion to set `NEXT_PUBLIC_AUTH_ENABLED=true` only when `APP_PASSWORD` is non-empty, without exposing the password value to the browser.
+- Logout button is conditionally rendered via `NEXT_PUBLIC_AUTH_ENABLED` check to avoid showing a dead button when auth is disabled.
+
+### Concept Meta-Layer
+Problem: the concept insight panel returned empty results for most nodes because the SLM synthesises concept labels (e.g. "reinforcement learning" from context mentioning "A* calls, 500 steps") that never appear verbatim in notes, and the existing AGE Cypher lookup had a bug (`e.text` instead of `e.name`).
+
+Solution — two parts:
+
+1. **Bug fix**: `_find_note_ids_via_graph` in `ConceptInsightService` now uses `e.name` (correct AGE entity node property). The Cypher query is extended with UNION clauses to also match via `SYNONYM_OF` (1-hop, undirected) and `SUBTOPIC_OF` (finds notes mentioning a subtopic of the searched concept).
+
+2. **`ConceptMetaClassifier`** (`api/src/app/nlp/concept_meta.py`): a new sync class that calls Claude after each note's graph sync to classify relationships among newly extracted concepts. Stores `SYNONYM_OF` and `SUBTOPIC_OF` edges in the AGE graph via `GraphRepository.upsert_typed_edge()`.
+
+Scalability decisions:
+- **Incremental not full-graph**: a new `meta_classified_at TIMESTAMPTZ` column (migration `0012`) on `concept_registry` gates classification. Only concepts where this is `NULL` are sent to Claude. Editing an existing note without new concepts does zero SLM work.
+- **Edges are durable**: meta edges carry no `source_note_id`, so they survive the note's delete-and-replace graph sync. They accumulate across notes over time.
+- **Sync Anthropic client**: uses `anthropic.Anthropic` (same pattern as `SLMExtractor`) because note processing runs in a synchronous background worker, not an async context.
+- **Conservative SLM prompt**: instructs Claude to only emit high-confidence pairs from the provided list; prevents hallucinated cross-concept edges.
+
+## 2026-03-29 (Baseline Bug Fixes)
+- Fixed hybrid spotting merge logic: lower-quality contained spans from the lowercase token fallback were surviving alongside better phrase spans. Fix: accept longer spans first, discard contained spans.
+- Fixed lowercase action-token filtering: `eren explores ...` was suppressing single-token recall for `eren`. Added `explore`/`explores` to the action-token reject list.
 
 ## 2026-03-29 (Local Graph Noise Hardening)
 - Debug outcome:
@@ -41,9 +53,7 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
   - Local graph extraction now also seeds dictionary terms from the alias table for better parity with processing-time extraction.
 - Regression coverage:
   - Added unit and integration tests proving note titles and wiki-link target titles are excluded from entity nodes while real body entities remain.
-- Validation:
-  - Targeted graph/NLP suites passed (`20 passed`).
-  - Live smoke graph for a note linking `[[Graph Clean Neighbor]]` now returns only expected entity labels: `Machine Learning`, `graph reasoning`.
+- Smoke test: local graph for a note linking `[[Graph Clean Neighbor]]` now returns only expected entity labels: `Machine Learning`, `graph reasoning`.
 
 ## 2026-03-17 (Release Gate Standardization)
 - Added `docs/release_checklist.md` as the canonical epic completion checklist.
@@ -57,15 +67,8 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
   - `docs/codex.md` (epic completion rule).
 
 ## 2026-03-07
-- Documentation policy alignment:
-  - `docs/decisions.md` stores non-plan additions and operational notes.
-  - `docs/plan.md` remains the source of truth for architecture and implementation sequencing.
-- Hardening follow-through notes:
-  - Removed unused placeholder package file `api/src/app/models/__init__.py`.
-  - Removed unused web note state helper in `web/src/lib/state/note-store.ts` after TipTap path consolidation.
-- Tooling/runtime note:
-  - In this environment, `uv run` intermittently panics with a system configuration error.
-  - Validation fallback used `api/.venv/bin/ruff`, `api/.venv/bin/mypy`, and `api/.venv/bin/pytest` with equivalent scope.
+- Documentation policy: `docs/decisions.md` for non-plan additions; `docs/plan.md` for architecture sequencing.
+- Removed unused `api/src/app/models/__init__.py` placeholder and `web/src/lib/state/note-store.ts` after TipTap path consolidation.
 
 ## 2026-03-07 (Containerized Workflow)
 - Containerized orchestration addition:
@@ -96,7 +99,6 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
 - Added graph sync delete-and-replace by `source_note_id` and typed graph-edge writing.
 - Added startup async backfill service and `/v1/backfill-status` API route.
 - Added dedicated unit/integration coverage for graph sync relation collapse, backfill status, startup backfill async behavior, and note-title migration.
-- Local web test runtime still has an esbuild platform mismatch in `web/node_modules`; validated frontend tests in compose runtime (`docker compose ... run --rm web npm run test`).
 
 ## 2026-03-12 (Embedding Schema Safety)
 - Fixed graph embedding persistence to always target `public.note_embeddings` instead of relying on session `search_path`.
@@ -119,9 +121,6 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
 - Added note list client capabilities (`listNotes`, `deleteNote`) and maintained existing note save/get API boundaries.
 - Added `note_tags` association model/migration and organization metadata fields on notes (`subject_id`, `is_pinned`, `is_archived`).
 - Added organization-aware list semantics in API with default archive exclusion and explicit query controls.
-- Validation/runtime notes:
-  - Local `uv run` remains unstable in this environment (panic); Python checks/tests validated through `api/.venv/bin/*`.
-  - Local host `vitest` remains blocked by platform-specific `esbuild` mismatch; web tests validated in compose Node 20 runtime.
 
 ## 2026-03-12 (Workspace UI Stabilization)
 - Reworked workspace layout to a commercial baseline with explicit sidebar/editor panels and app-wide styling in `web/src/app/globals.css`.
@@ -146,10 +145,6 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
   - `Cmd/Ctrl+K` command palette fallback,
   - `[[wiki-link]]` autocomplete with quick-create option for unresolved titles.
 - Added NoteEditor wiring for wiki-link suggestion lookup and unresolved linked-note creation through existing note APIs.
-- Validation/runtime notes:
-  - local host vitest remains blocked by platform-specific `esbuild` mismatch;
-  - canonical validation executed in compose runtime (`docker compose -f infra/docker-compose.yml run --rm web npm run test`);
-  - web typecheck passed and compose web tests passed (`45` tests).
 
 ## 2026-03-12 (Slash Enter Command Fix)
 - Fixed slash-command Enter behavior to use TipTap `editorProps.handleKeyDown` instead of relying only on wrapper `onKeyDown`.
@@ -165,10 +160,7 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
 - Added `note_assets` migration/model/repository with note-save reconciliation that marks unreferenced assets deleted and removes local files.
 - Added markdown renderer for deterministic math/image export output.
 - Added TipTap math/image command entries and custom node extensions for persisted math/image content.
-- Validation/runtime notes:
-  - local `uv run` panic persists in this environment; validation used `api/.venv/bin/{pytest,ruff,mypy}`.
-  - local vitest/esbuild mismatch persists; canonical web validation executed in compose runtime.
-  - Added compatibility guard for pre-migration DBs: note-save reconciliation no-ops when `note_assets` is absent, while media endpoints return explicit migration-required (`503`) responses.
+- Added compatibility guard: note-save reconciliation no-ops when `note_assets` is absent (pre-migration DBs); media endpoints return `503` with migration-required detail.
 
 ## 2026-03-13 (Math Rendering Hardening)
 - Math input normalization now strips optional `$...$` / `$$...$$` delimiters before persistence and rendering.
@@ -188,18 +180,11 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
 - Applied major visual refresh in workspace/editor surfaces via updated CSS variable system and panel/card hierarchy polish.
 - Added optimistic UI + rollback semantics for note rename, pin/unpin, and delete actions in workspace state management.
 - Added regression tests that enforce optimistic behavior followed by rollback on failed persistence (`pin` and `delete` paths).
-- Validation/runtime notes:
-  - local host web runtime still unstable due `esbuild` platform mismatch;
-  - canonical validation used compose runtime (`docker compose -f infra/docker-compose.yml run --rm web npm run test`);
-  - API regression suite revalidated in compose (`111 passed, 5 skipped`).
 
 ## 2026-03-13 (Epic E10 Quick-Switch Foundation)
 - Added a workspace-global quick switcher (`Cmd/Ctrl+K`) with a single searchable result model for actions and notes.
 - Added keyboard-first interaction contract (`Arrow` navigation, `Enter` execution, `Escape` close) with dialog/listbox semantics.
 - Added quick actions for create/open/pin/archive and aligned context menu parity by adding archive/unarchive action.
-- Validation/runtime notes:
-  - web host runtime still depends on local platform-correct `node_modules`; compose remains the canonical verification path;
-  - compose validation passed: targeted quick-switch tests (`22 passed`) and full web suite (`67 passed`).
 
 ## 2026-03-13 (Epic E10 Backlinks + Title Guardrail Delivery)
 - Added backlinks API route and shared contracts:
@@ -217,10 +202,6 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
   - keyboard close (`Escape`)
   - focus restore to trigger
   - source-note jump behavior
-- Validation/runtime notes:
-  - compose API checks and full API tests passed (`116 passed, 5 skipped`);
-  - compose web typecheck and full web tests passed (`71 passed`);
-  - local host `uv run` panic and host `esbuild` mismatch remain known environment constraints; compose remains canonical verification path.
 
 ## 2026-03-14 (Deterministic NLP + Linking Hardening)
 - Added deterministic block-level entity spotting module (`app/nlp/spotting.py`) with:
@@ -233,9 +214,6 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
   - `tests/unit/test_entity_spotting.py`
   - `tests/unit/test_resolution_ranking.py`
   - updated NLP/resolver/process/graph unit coverage for mention-aware behavior.
-- Validation/runtime notes:
-  - local `uv run` panic still present in this environment;
-  - verification run executed via `api/.venv/bin/{ruff,mypy,pytest}` with focused suites passing.
 
 ## 2026-03-14 (Selective Hierarchy + Block References)
 - Added block-tree persistence and migration:
@@ -281,19 +259,12 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
 - Added resilient note-save fallback when media reconciliation hits missing `note_assets` errors during delete-mark operations.
 - Added unit and integration regressions to lock missing-table behavior for both reconciliation read and write paths.
 - Synced workspace recent-chip interaction so selected and highlighted note state update together.
-- Validation:
-  - Python `ruff` and `mypy` passed via `api/.venv/bin/*`.
-  - Python tests passed: `137 passed, 5 skipped`.
-  - Web tests passed in compose runtime: `84 passed`.
 
 ## 2026-03-14 (Block UID Collision Hardening)
 - Added server-side duplicate `blockUid` normalization during block extraction.
 - Added `parentBlockUid` remapping to canonicalized UIDs when duplicate IDs are encountered.
 - Added deep-copy normalization before extraction so corrected block IDs persist to note JSON payloads.
 - Added regression coverage for duplicate `blockUid` and parent-remap behavior.
-- Validation:
-  - Python tests passed: `138 passed, 5 skipped`.
-  - Python lint passed: `ruff check`.
 
 ## 2026-03-14 (Media Schema Repair Migration)
 - Added forward repair migration `20260314_0007_note_assets_repair` to guarantee `public.note_assets` exists when prior migration chains were advanced but media table creation was skipped.
@@ -311,10 +282,6 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
   - PostgreSQL table probe now uses bind-level execution and no longer starts a session transaction implicitly.
 - Added regression coverage to ensure Postgres table probe path does not call `session.execute`.
 - Fixed TipTap SSR hydration warning by setting `immediatelyRender: false` in editor initialization.
-- Validation:
-  - Python tests passed: `140 passed, 5 skipped`.
-  - Web typecheck passed.
-  - TipTap web tests passed in compose runtime.
 
 ## 2026-03-15 (Epic E11 S11.1 Local Graph Delivery)
 - Added local graph contracts (Python + TypeScript) and API route `GET /v1/graph/local/{note_id}`.
@@ -331,11 +298,6 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
   - API integration tests for neighborhood payload, truncation, and `404`,
   - service unit tests for second-hop traversal and type filtering,
   - UI tests for panel loading/error/render states.
-- Validation:
-  - API checks passed (`ruff`, `mypy` via `api/.venv/bin/*`),
-  - Python tests passed: `147 passed, 5 skipped`,
-  - Web typecheck passed,
-  - Web tests passed: `87 passed`.
 
 ## 2026-03-17 (NLP Recall Gap and Hybrid Extraction Plan)
 - Debug outcome:
@@ -377,18 +339,11 @@ Architectural decisions are tracked in `docs/plan.md` under `Architecture Decisi
   - `tests/unit/test_nlp_pipeline.py`: per-layer extraction counters.
   - `tests/unit/test_nlp_config.py`: profile/seed env parsing.
   - `tests/unit/test_local_graph_service.py`: lowercase fixture yields entity + `MENTIONS` edges in local graph payload.
-- Validation:
-  - Python tests: `152 passed, 5 skipped`.
-  - Web checks/tests: typecheck passed, `87` tests passed.
-  - API static checks: `ruff` and `mypy` passed.
 
 ## 2026-03-18 (Lowercase Recall Follow-up)
 - Expanded rule-only lowercase spotting fallback from non-overlapping regex matches to deterministic sliding n-gram extraction.
 - Lowercase phrase filter now rejects stopword/verb windows but allows generic multi-word entity phrases without domain-token hard-coding.
 - This improves recall for notes like `bayesian inference` / `variational methods` while keeping obvious action/noise phrases out.
-- Validation:
-  - Targeted spotting/NLP/local-graph suites passed.
-  - Full Python suite passed: `153 passed, 5 skipped`.
 
 ## 2026-03-31 (Phase 1: Critical Production Blockers — UI/UX Spec)
 
@@ -545,7 +500,3 @@ Prior to this pass, the backend had zero pytest tests and the frontend had ~87 t
   fireEvent.change(tags, { value: "nlp" })   → fireEvent.keyDown(tags, { key: "Enter" })
   ```
 
-**Validation (test suite complete)**
-- Backend: `71 passed` via `PYTHONPATH=api/src:. api/.venv/bin/pytest api/tests/ -v`.
-- Frontend: `133 passed` via `npm --prefix web run test`.
-- Note: root `.venv` at repo root does not contain API deps. Use `api/.venv/bin/pytest` for backend tests.

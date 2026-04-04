@@ -93,7 +93,7 @@ cp infra/.env.prod.example infra/.env.prod
 nano infra/.env.prod
 ```
 
-Fill in all four values. Generate strong random secrets with:
+Fill in all required values. Generate strong random secrets with:
 ```bash
 openssl rand -hex 32
 ```
@@ -101,11 +101,17 @@ openssl rand -hex 32
 Your `.env.prod` should look like:
 ```
 DOMAIN=notes.yourdomain.com
-API_KEY=a3f9c2d1e8b7f4...       # share this with friends/family
+API_KEY=a3f9c2d1e8b7f4...       # API header key — used by internal service calls
 ANTHROPIC_API_KEY=sk-ant-...    # your key, server-side only
 DB_PASSWORD=8b7e4f1c2a9d3e...
 NLP_EXTRACTION_PROFILE=llm-enhanced
+
+# Password gate for the web UI (recommended for public deployments)
+APP_PASSWORD=choose-a-strong-password   # what users type at the login screen
+SESSION_SECRET=                         # openssl rand -hex 32
 ```
+
+`APP_PASSWORD` and `SESSION_SECRET` are optional but strongly recommended for any deployment accessible over the internet. When `APP_PASSWORD` is set, all web routes are protected by a login page.
 
 **Never commit `.env.prod` to git.** It is in `.gitignore`.
 
@@ -161,9 +167,9 @@ Open `https://notes.yourdomain.com` in a browser — the app should load.
 
 Share two things:
 1. **URL**: `https://notes.yourdomain.com`
-2. **Access key**: the `API_KEY` value from `.env.prod`
+2. **Password**: the `APP_PASSWORD` value from `.env.prod`
 
-They enter the key once in the app. It is stored in the browser and sent automatically on every request.
+They type the password once. A browser session cookie is set automatically and clears when the browser is closed.
 
 **Your Anthropic key is safe**: it lives only in the API container's environment, is never included in any response, and cannot be extracted from the browser.
 
@@ -214,3 +220,6 @@ Run this before every update. Store backups off the VPS (download to your machin
 | Graph features not working | Verify AGE extension is enabled (see above) |
 | AI insight panel shows config hint | `ANTHROPIC_API_KEY` is empty or wrong in `.env.prod` — fix and run `make deploy-prod` |
 | VPS runs out of memory during build | Hetzner CX22 (4 GB) is the minimum; upgrade to CX32 (8 GB) if builds consistently fail |
+| Always redirected to `/login` even after correct password | `SESSION_SECRET` changed between deploys (or was empty and `APP_PASSWORD` changed) — existing cookies are invalidated; users must log in again after any secret rotation |
+| Login page not appearing (loads directly) | `APP_PASSWORD` is not set in `.env.prod` — the gate is disabled by design; add the variable and run `make deploy-prod` |
+| Concept insight shows "No notes mention this concept" for most nodes | Concept meta-classification has not run yet — process (or re-process) notes after deploying to build SYNONYM_OF/SUBTOPIC_OF edges. Check `docker compose logs api \| grep concept_meta`. |

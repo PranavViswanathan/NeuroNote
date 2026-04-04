@@ -9,21 +9,30 @@ When a user clicks a concept node in any graph view the frontend calls
    system prompt that forbids external knowledge in the insight paragraph.
 4. Returns note references (with snippets), the insight, and learning links.
 
+Results are cached in the ``concept_insight_cache`` table keyed by
+``(concept_label, content_digest)``.  The digest is a SHA-256 of the sorted
+``note_id:content_hash`` pairs for the matching notes, so the cache entry
+becomes stale automatically when any relevant note changes.
+
 Graceful degradation:
 - No API key → ``insight`` is ``None``; note references still return.
 - Claude timeout / parse error → same as no API key for that request.
 - No matching notes → empty ``note_refs``, ``notes_found = 0``.
+- Non-PostgreSQL DB (SQLite dev) → cache ops silently skipped.
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import logging
 import re
 from datetime import datetime, timezone
 
 import anthropic
-from sqlalchemy import func, or_, select
+from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
+from app.db.models.concept_insight_cache import ConceptInsightCache
 from app.db.models.note import Note
 from app.nlp.config import NlpSettings, get_nlp_settings
 from shared.contracts.python.v1.graph import (
@@ -31,6 +40,8 @@ from shared.contracts.python.v1.graph import (
     ConceptLearningLink,
     ConceptNoteRef,
 )
+
+_LOGGER = logging.getLogger(__name__)
 
 _SYSTEM_PROMPT = """\
 You are a knowledge synthesis assistant. Generate an insight about a concept based \
@@ -57,6 +68,12 @@ _SNIPPET_BEFORE = 60          # chars before the match in the UI snippet
 _SNIPPET_AFTER = 90           # chars after the match in the UI snippet
 
 
+def _compute_digest(notes: list[Note]) -> str:
+    """SHA-256 of sorted 'note_id:content_hash' pairs — stale when notes change."""
+    note_keys = sorted(f"{n.note_id}:{n.content_hash}" for n in notes)
+    return hashlib.sha256("|".join(note_keys).encode()).hexdigest()
+
+
 class ConceptInsightService:
     def __init__(
         self,
@@ -75,22 +92,40 @@ class ConceptInsightService:
         concept_label: str,
         limit_notes: int = _MAX_NOTES,
     ) -> ConceptInsightResponse:
-        notes = self._find_notes(concept_label, limit=min(limit_notes, _MAX_NOTES))
+        notes = self._find_notes(
+            concept_label,
+            limit=min(limit_notes, _MAX_NOTES),
+        )
         note_refs = [self._make_ref(note, concept_label) for note in notes]
 
         insight: str | None = None
         links: list[ConceptLearningLink] = []
 
         if notes and self._api_key:
-            context = self._build_context(concept_label, notes)
-            raw = await self._call_claude(concept_label, context)
-            insight = raw.get("insight") or None
-            links = [
-                ConceptLearningLink(**lnk)
-                for lnk in raw.get("learning_links", [])
-                if isinstance(lnk, dict)
-                and all(k in lnk for k in ("title", "url", "description"))
-            ]
+            content_digest = _compute_digest(notes)
+            cached = self._get_cached_insight(concept_label, content_digest)
+            if cached is not None:
+                insight = cached["insight"]
+                links = [
+                    ConceptLearningLink(**lnk)
+                    for lnk in cached["learning_links"]
+                    if isinstance(lnk, dict)
+                    and all(k in lnk for k in ("title", "url", "description"))
+                ]
+            else:
+                context = self._build_context(concept_label, notes)
+                raw = await self._call_claude(concept_label, context)
+                insight = raw.get("insight") or None
+                links = [
+                    ConceptLearningLink(**lnk)
+                    for lnk in raw.get("learning_links", [])
+                    if isinstance(lnk, dict)
+                    and all(k in lnk for k in ("title", "url", "description"))
+                ]
+                if insight:
+                    self._save_cached_insight(
+                        concept_label, content_digest, insight, links, len(notes)
+                    )
 
         return ConceptInsightResponse(
             concept_label=concept_label,
@@ -101,9 +136,82 @@ class ConceptInsightService:
             generated_at=datetime.now(timezone.utc).isoformat(),
         )
 
+    # ── Cache helpers ────────────────────────────────────────────────────────
+
+    def _get_cached_insight(self, label: str, digest: str) -> dict | None:  # type: ignore[type-arg]
+        try:
+            row = self._session.execute(
+                select(ConceptInsightCache).where(
+                    ConceptInsightCache.concept_label == label,
+                    ConceptInsightCache.content_digest == digest,
+                )
+            ).scalar_one_or_none()
+            if row is None:
+                return None
+            return {
+                "insight": row.insight,
+                "learning_links": json.loads(row.learning_links),
+            }
+        except Exception:  # noqa: BLE001
+            # Roll back so the session is clean for subsequent queries
+            # (a failed SELECT aborts the PostgreSQL transaction).
+            try:
+                self._session.rollback()
+            except Exception:  # noqa: BLE001
+                pass
+            return None
+
+    def _save_cached_insight(
+        self,
+        label: str,
+        digest: str,
+        insight: str,
+        links: list[ConceptLearningLink],
+        count: int,
+    ) -> None:
+        try:
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+            links_json = json.dumps([lnk.model_dump() for lnk in links])
+            now = datetime.now(timezone.utc)
+            stmt = (
+                pg_insert(ConceptInsightCache)
+                .values(
+                    concept_label=label,
+                    content_digest=digest,
+                    insight=insight,
+                    learning_links=links_json,
+                    notes_count=count,
+                    generated_at=now,
+                )
+                .on_conflict_do_update(
+                    index_elements=["concept_label"],
+                    set_={
+                        "content_digest": digest,
+                        "insight": insight,
+                        "learning_links": links_json,
+                        "notes_count": count,
+                        "generated_at": now,
+                    },
+                )
+            )
+            self._session.execute(stmt)
+            self._session.commit()
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("concept_insight_cache write skipped", exc_info=True)
+
     # ── Private ─────────────────────────────────────────────────────────────
 
     def _find_notes(self, label: str, limit: int) -> list[Note]:
+        """Find notes mentioning *label*.
+
+        Phase 1 — case-insensitive LIKE search on title + content (fast,
+        covers verbatim matches).
+        Phase 2 — query the AGE graph for MENTIONS edges (direct match) plus
+        SYNONYM_OF and SUBTOPIC_OF traversal, catching concepts that were
+        normalised during extraction (e.g. note says "ML" but concept is
+        "machine learning") or are subtopics of the searched concept.
+        """
         like = f"%{label.lower()}%"
         rows = self._session.execute(
             select(Note)
@@ -116,7 +224,72 @@ class ConceptInsightService:
             .order_by(Note.updated_at.desc())
             .limit(limit)
         ).scalars().all()
-        return list(rows)
+
+        if rows:
+            return list(rows)
+
+        # Phase 2: find note IDs via graph traversal (MENTIONS + SYNONYM_OF + SUBTOPIC_OF).
+        note_ids = self._find_note_ids_via_graph(label, limit)
+        if note_ids:
+            fallback_rows = self._session.execute(
+                select(Note)
+                .where(Note.note_id.in_(note_ids))
+                .order_by(Note.updated_at.desc())
+                .limit(limit)
+            ).scalars().all()
+            if fallback_rows:
+                return list(fallback_rows)
+
+        return []
+
+    def _find_note_ids_via_graph(self, label: str, limit: int) -> list[str]:
+        """Return note IDs from AGE MENTIONS edges for entities matching *label*.
+
+        Silently returns [] on non-PostgreSQL connections or any AGE error.
+        """
+        try:
+            bind = self._session.bind
+            if bind is None or bind.dialect.name != "postgresql":
+                return []
+
+            self._session.execute(text("LOAD 'age'"))
+            self._session.execute(
+                text('SET search_path = ag_catalog, "$user", public')
+            )
+
+            # Embed label as a JSON string so special characters are safely escaped.
+            # Replace % with %% so SQLAlchemy's text() doesn't treat it as a
+            # bind-parameter placeholder.
+            label_json = json.dumps(label.lower()).replace("%", "%%")
+            rows = self._session.execute(
+                text(
+                    f"""
+                    SELECT * FROM cypher('neuronote', $$
+                        MATCH ()-[m:MENTIONS]->(e:Entity)
+                        WHERE toLower(e.name) = {label_json}
+                        RETURN DISTINCT m.source_note_id
+                        UNION
+                        MATCH ()-[m:MENTIONS]->(e:Entity)-[:SYNONYM_OF]-(syn:Entity)
+                        WHERE toLower(syn.name) = {label_json}
+                        RETURN DISTINCT m.source_note_id
+                        UNION
+                        MATCH ()-[m:MENTIONS]->(specific:Entity)-[:SUBTOPIC_OF]->(broader:Entity)
+                        WHERE toLower(broader.name) = {label_json}
+                        RETURN DISTINCT m.source_note_id
+                    $$) AS (source_note_id agtype)
+                    """
+                )
+            ).fetchall()
+
+            note_ids: list[str] = []
+            for row in rows:
+                raw = str(row[0])
+                # AGE returns string values as JSON-encoded: "\"note-id\""
+                note_ids.append(json.loads(raw) if raw.startswith('"') else raw)
+            return note_ids[:limit]
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("graph MENTIONS lookup skipped for label=%r", label, exc_info=True)
+            return []
 
     def _make_ref(self, note: Note, label: str) -> ConceptNoteRef:
         raw_text: str = note.content_text or ""

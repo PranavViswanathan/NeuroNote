@@ -34,21 +34,33 @@ Web: `http://localhost:3000` · API: `http://localhost:8000`
 - **SQLAlchemy** ORM (sync sessions, not async) — the DB layer is synchronous even though route handlers are `async def`
 - **Apache AGE** (typed property graph in PostgreSQL) — Cypher queries via raw SQL with `LOAD 'age'` + `ag_catalog` search path
 - **Schema is migration-first** — `DB_AUTO_CREATE=false`; always run `make compose-migrate` after pulling new migrations
-- **Alembic** for migrations — 10 migrations in `api/alembic/versions/`
-- **pgvector** for semantic embeddings — stored on entity nodes
+- **Alembic** for migrations — 12 migrations in `api/alembic/versions/`
+- **pgvector** for semantic embeddings — note-level embeddings stored in `public.note_embeddings` (384-dim, HNSW index); no per-entity embeddings
 - **Shared contracts** — Pydantic models in `shared/contracts/python/v1/`; always update the matching TypeScript file in `shared/contracts/ts/v1/` when changing Python contracts, and vice versa
+
+#### Cache tables (migration 0011)
+- `concept_insight_cache` — caches Claude-generated concept insights keyed by `(concept_label, content_digest)`. The digest is a SHA-256 of sorted `note_id:content_hash` pairs, so the cache auto-invalidates when any relevant note changes.
+- `nlp_extraction_cache` — caches NLP/SLM extraction results keyed by `(content_hash, extraction_profile)`. Eliminates redundant LLM calls after container restarts for unchanged notes.
 
 ### NLP pipeline (`api/src/app/nlp/`)
 - `NoteNlpPipeline` in `pipeline.py` — entry point; reads `NLP_EXTRACTION_PROFILE` env var
 - Three profiles: `rule-only` (default), `hybrid-spacy`, `llm-enhanced`
-- LRU extraction cache keyed by `content_hash` — notes with identical text share one result
+- LRU extraction cache keyed by `content_hash` — notes with identical text share one result; backed by `nlp_extraction_cache` DB table for cross-restart persistence
 - `SLMExtractor` (`slm_extractor.py`) wraps Claude API for `llm-enhanced` profile — uses sync `anthropic.Anthropic`
-- `ConceptInsightService` (`services/concept_insight_service.py`) wraps Claude for on-demand insight generation — uses async `anthropic.AsyncAnthropic`
+- `ConceptMetaClassifier` (`concept_meta.py`) — called after each note's graph sync; uses Claude to identify `SYNONYM_OF` pairs (e.g. "ML" ↔ "machine learning") and `SUBTOPIC_OF` pairs (e.g. "backpropagation" → "neural networks") among newly extracted concepts; writes edges to AGE; uses sync `anthropic.Anthropic`. Guards against re-classification via `concept_registry.meta_classified_at` — already-classified concepts are always skipped.
+- `ConceptInsightService` (`services/concept_insight_service.py`) wraps Claude for on-demand insight generation — uses async `anthropic.AsyncAnthropic`; cached in `concept_insight_cache`
 
 ### Graph sync (`api/src/app/services/graph_sync_service.py`)
 - Delete-and-replace semantics: on each note save, all AGE nodes/edges sourced from that note are deleted then re-created
 - `GraphSyncPayload` carries entities, keyphrases, relations, resolved_entities, embedding, entity_mentions
 - Block-scoped `MENTIONS` edges: each edge carries `source_note_id`, `mention_text`, `start_offset`, `end_offset`
+- **Concept meta edges are durable**: `SYNONYM_OF` and `SUBTOPIC_OF` edges between Entity nodes carry no `source_note_id`, so they are never deleted by the note's delete-and-replace sync. They persist across note re-edits.
+- **Entity node properties**: `id` (slug), `name` (canonical text), `kind` (label), `updated_at`. The property is `name` — **not** `text`. Cypher queries must use `e.name`, not `e.text`.
+
+### Concept insight service (`api/src/app/services/concept_insight_service.py`)
+- `GET /v1/concepts/insight?label=<concept>` returns notes + AI insight grounded in user's notes
+- Note discovery uses two phases: (1) case-insensitive LIKE search on title + content; (2) AGE graph traversal via `MENTIONS` edges with UNION clauses for `SYNONYM_OF` (1-hop, undirected) and `SUBTOPIC_OF` (finds notes mentioning a subtopic of the searched concept)
+- Results cached in `concept_insight_cache` keyed by `(concept_label, content_digest)`
 
 ### Frontend
 - **Next.js App Router** — all client components use `"use client"`
@@ -57,6 +69,14 @@ Web: `http://localhost:3000` · API: `http://localhost:8000`
 - **Autosave orchestration** (`web/src/lib/orchestration/`) — 800ms debounce for save, 3s for processing queue trigger
 - **API client** (`web/src/lib/api-client.ts`) — typed fetch wrappers using shared TS contracts
 - **Design tokens** — all colors, font sizes, z-indices, spacing use CSS custom properties from `globals.css`; never use hardcoded hex colors or bare `rem` values in new CSS
+
+### Password protection (`web/src/middleware.ts`)
+- Controlled by `APP_PASSWORD` env var on the `web` service. Unset (default) = no gate, app loads directly.
+- When set: Next.js Edge Middleware intercepts all routes except `/login`, `/api/auth/login`, `/api/auth/logout`, `/_next/*`, and static assets. Unauthenticated requests redirect to `/login?next=<original_path>`.
+- Token = HMAC-SHA256(`SESSION_SECRET || APP_PASSWORD`, `APP_PASSWORD`) stored as `neuronote_session` httpOnly session cookie (no `maxAge` — cleared when browser closes).
+- Middleware uses Web Crypto API (`crypto.subtle`); login/logout API routes use Node.js `crypto.createHmac`.
+- Logout button in workspace header is shown only when `NEXT_PUBLIC_AUTH_ENABLED === "true"` (set automatically when `APP_PASSWORD` is non-empty via `${APP_PASSWORD:+true}` in compose).
+- Key files: `web/src/middleware.ts`, `web/src/app/login/page.tsx`, `web/src/app/login/LoginForm.tsx`, `web/src/app/api/auth/login/route.ts`, `web/src/app/api/auth/logout/route.ts`
 
 ### Logging
 - Root logger format uses `%(request_id)s` — injected by `_RequestIdFilter` in `main.py`
@@ -107,8 +127,11 @@ Frontend tests: `web/src/**/*.test.tsx`
 | `NLP_EXTRACTION_PROFILE` | `api/.env` or compose | `rule-only` / `hybrid-spacy` / `llm-enhanced` |
 | `NLP_MODEL_NAME` | `api/.env` or compose | spaCy model (e.g. `spacy:en_core_web_sm`) |
 | `NLP_ENTITY_SEED_TERMS` | `api/.env` or compose | Comma-separated terms for deterministic seeding |
-| `ANTHROPIC_API_KEY` | `api/.env` or compose | Enables LLM extraction + concept insights |
+| `ANTHROPIC_API_KEY` | `api/.env` or compose | Enables LLM extraction, concept insights, and concept meta-classification |
 | `NEXT_PUBLIC_API_BASE_URL` | `web/.env` | API URL for the browser (`http://localhost:8000`) |
+| `APP_PASSWORD` | `infra/.env` or compose | Password gate for the web UI. Unset = disabled (dev mode). When set, all routes require login. |
+| `SESSION_SECRET` | `infra/.env` or compose | Secret for HMAC-SHA256 session token. Falls back to `APP_PASSWORD` if unset. Use `openssl rand -hex 32`. |
+| `NEXT_PUBLIC_AUTH_ENABLED` | Set automatically by compose | `"true"` when `APP_PASSWORD` is non-empty. Controls logout button visibility. Do not set manually. |
 
 ## Files to be careful with
 
@@ -117,3 +140,4 @@ Frontend tests: `web/src/**/*.test.tsx`
 - `shared/contracts/python/v1/graph.py` + `shared/contracts/ts/v1/graph.ts` — must stay in sync
 - `web/src/app/globals.css` — all design tokens live here; circular variable references will silently break styling
 - `infra/docker-compose.yml` — service definitions, port mappings, env var injection
+- `web/src/middleware.ts` — Edge runtime; must use Web Crypto API (not Node.js `crypto`); matcher covers all non-static routes

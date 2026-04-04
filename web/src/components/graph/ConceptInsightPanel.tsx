@@ -33,7 +33,7 @@ export function ConceptInsightPanel({
     setLoading(true);
     setError(null);
     setData(null);
-    fetchConceptInsight(baseUrl, node.label)
+    fetchConceptInsight(baseUrl, node.label, 10)
       .then(setData)
       .catch(() => setError("Could not load insight. Please try again."))
       .finally(() => setLoading(false));

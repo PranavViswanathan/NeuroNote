@@ -33,8 +33,6 @@ from app.services.startup_backfill_service import StartupBackfillService
 _PUBLIC_PATHS = {"/health", "/docs", "/openapi.json", "/redoc"}
 
 class _RequestIdFilter(logging.Filter):
-    """Inject a default request_id on log records that don't have one."""
-
     def filter(self, record: logging.LogRecord) -> bool:
         if not hasattr(record, "request_id"):
             record.request_id = "-"  # type: ignore[attr-defined]
@@ -48,10 +46,8 @@ logging.basicConfig(
 )
 _request_id_filter = _RequestIdFilter()
 logging.getLogger().addFilter(_request_id_filter)
-# Also attach to all root handlers so the filter runs before formatting
 for _h in logging.getLogger().handlers:
     _h.addFilter(_request_id_filter)
-# Suppress httpx HTTP request INFO logs — they don't carry request_id and are noise
 logging.getLogger("httpx").setLevel(logging.WARNING)
 
 _LOG = logging.getLogger(__name__)
@@ -101,12 +97,10 @@ app.add_middleware(
 
 @app.middleware("http")
 async def request_id_middleware(request: Request, call_next: object) -> object:
-    """Attach a unique X-Request-ID to every request for log correlation."""
+    """Attach X-Request-ID to every request for log correlation."""
     request_id = request.headers.get("X-Request-ID") or str(uuid.uuid4())[:8]
-    # Store on request state so downstream code can read it.
     request.state.request_id = request_id
 
-    # Inject into the logging context for this thread via a LogRecord factory.
     old_factory = logging.getLogRecordFactory()
 
     def record_factory(*args: object, **kwargs: object) -> logging.LogRecord:
@@ -126,11 +120,7 @@ async def request_id_middleware(request: Request, call_next: object) -> object:
 
 @app.middleware("http")
 async def api_key_middleware(request: Request, call_next: object) -> object:
-    """Enforce API key auth when API_KEY env var is set.
-
-    If API_KEY is empty or unset, all requests pass through (local dev mode).
-    Health and docs endpoints are always public.
-    """
+    """Enforce X-Api-Key when API_KEY env var is set. No-op in local dev (unset)."""
     required_key = os.environ.get("API_KEY", "").strip()
     if not required_key or request.url.path in _PUBLIC_PATHS or request.method == "OPTIONS":
         return await call_next(request)  # type: ignore[operator]

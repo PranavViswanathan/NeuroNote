@@ -18,6 +18,9 @@ services:
     environment:
       NEXT_PUBLIC_API_BASE_URL: https://${DOMAIN}
       NEXT_PUBLIC_API_KEY: ${API_KEY}
+      APP_PASSWORD: ${APP_PASSWORD:-}
+      SESSION_SECRET: ${SESSION_SECRET:-}
+      NEXT_PUBLIC_AUTH_ENABLED: ${APP_PASSWORD:+true}
     restart: always
 
   caddy:

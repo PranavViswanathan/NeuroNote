@@ -1,12 +1,8 @@
-"""Job store with Postgres persistence and in-memory fallback.
+"""Job store: Postgres-backed with in-memory fallback for SQLite/tests.
 
-When a Postgres DATABASE_URL is configured, all job state is written to the
-`processing_jobs` table so it survives container restarts. On startup the API
-calls `mark_stale_jobs_as_failed()` to clean up any jobs that were in-progress
-when the previous instance died.
-
-For SQLite (tests / local dev without Postgres), the pure in-memory store is
-used unchanged.
+Job state persists across container restarts when using Postgres.
+``mark_stale_jobs_as_failed()`` must be called on startup to clean up
+jobs that were in-progress when the previous worker died.
 """
 from __future__ import annotations
 
@@ -56,12 +52,7 @@ def reset_job_store() -> None:
 
 
 def mark_stale_jobs_as_failed() -> None:
-    """Mark any running/queued jobs as failed on startup.
-
-    Call this once during app lifespan startup to clean up jobs that were
-    in-progress when the previous worker process died.
-    Only runs on Postgres; in-memory store is always clean on startup.
-    """
+    """Mark in-progress/queued jobs as failed. Call once on startup. Postgres-only."""
     if not _is_postgres():
         return
     try:

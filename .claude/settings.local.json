@@ -64,7 +64,21 @@
       "Bash(grep -E \"\\\\.\\(tsx?|jsx\\)$\")",
       "Bash(python -m pytest tests/ -x -q)",
       "Bash(xargs ls:*)",
-      "Bash(wc:*)"
+      "Bash(wc:*)",
+      "Bash(cat /Users/rishis/Desktop/Projects/NeuroNote/web/.env*)",
+      "Bash(cat /Users/rishis/Desktop/Projects/NeuroNote/web/next.config*)",
+      "Bash(grep -E \"\\\\.\\(env|key|secret|pem|crt|p12|pfx\\)$|secret|credential\")",
+      "Bash(grep \"^infra/\\\\.env$\")",
+      "Bash(gh run:*)",
+      "Bash(python3 -c \"import sys,json; d=json.load\\(sys.stdin\\); print\\(json.dumps\\(d.get\\('scripts',{}\\), indent=2\\)\\)\")",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(ls:*)",
+      "Bash(python3:*)",
+      "Bash(docker compose:*)",
+      "Bash(curl -s 'http://localhost:8000/v1/concepts/insight?label=reinforcement+learning' -H 'X-Api-Key: __CMDSUB_OUTPUT__')",
+      "Bash(curl -s 'http://localhost:8000/v1/concepts/insight?label=a*+pathfinding' -H 'X-Api-Key: __CMDSUB_OUTPUT__')",
+      "Bash(find .:*)",
+      "Bash(python:*)"
     ],
     "deny": [],
     "ask": []

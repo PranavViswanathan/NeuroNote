@@ -34,6 +34,15 @@ def _as_terms(raw_value: str | None, *, default: tuple[str, ...]) -> tuple[str, 
     return terms or default
 
 
+_DEFAULT_SEED_TERMS = (
+    "machine learning",
+    "entity resolution",
+    "graph reasoning",
+    "knowledge graph",
+    "neural networks",
+)
+
+
 @dataclass(frozen=True, slots=True)
 class NlpSettings:
     model_name: str
@@ -42,13 +51,7 @@ class NlpSettings:
     timeout_ms: int
     extraction_profile: str = "rule-only"
     enable_regex_fallback: bool = True
-    entity_seed_terms: tuple[str, ...] = (
-        "machine learning",
-        "entity resolution",
-        "graph reasoning",
-        "knowledge graph",
-        "neural networks",
-    )
+    entity_seed_terms: tuple[str, ...] = _DEFAULT_SEED_TERMS
     # LLM-enhanced profile settings
     llm_model: str = "claude-haiku-4-5-20251001"
     llm_api_key: str = ""
@@ -72,13 +75,7 @@ def get_nlp_settings() -> NlpSettings:
         ),
         entity_seed_terms=_as_terms(
             os.getenv("NLP_ENTITY_SEED_TERMS"),
-            default=(
-                "machine learning",
-                "entity resolution",
-                "graph reasoning",
-                "knowledge graph",
-                "neural networks",
-            ),
+            default=_DEFAULT_SEED_TERMS,
         ),
         llm_model=os.getenv("NLP_LLM_MODEL", "claude-haiku-4-5-20251001"),
         llm_api_key=os.getenv("ANTHROPIC_API_KEY", ""),

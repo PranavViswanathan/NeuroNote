@@ -2330,6 +2330,23 @@ select:focus-visible {
   font-weight: 600;
 }
 
+.app-nav-logout {
+  padding: 4px 12px;
+  font-size: var(--text-sm);
+  font-weight: 500;
+  background: transparent;
+  border: 1px solid var(--panel-border);
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-muted);
+  transition: color 0.15s, border-color 0.15s;
+}
+
+.app-nav-logout:hover {
+  color: var(--danger);
+  border-color: var(--danger);
+}
+
 /* ── Note Write / Graph tabs ───────────────────────────── */
 .note-tabs {
   display: flex;

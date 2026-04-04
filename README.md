@@ -38,15 +38,7 @@ make compose-migrate
 open http://localhost:3000
 ```
 
-**Custom ports** (if defaults are busy):
-```bash
-WEB_PORT=3001 API_PORT=8001 DB_PORT=5433 make compose-up
-```
-
-**Stop:**
-```bash
-make compose-down
-```
+Custom ports: `WEB_PORT=3001 API_PORT=8001 DB_PORT=5433 make compose-up`
 
 Default URLs: Web `http://localhost:3000` · API `http://localhost:8000` · Postgres `localhost:5432`
 
@@ -224,6 +216,8 @@ Migration history:
 - `20260330_0008` — semantic embeddings (pgvector)
 - `20260401_0009` — processing jobs persistence
 - `20260402_0010` — concept registry
+- `20260403_0011` — AI cache tables (concept_insight_cache, nlp_extraction_cache)
+- `20260403_0012` — concept meta-classification (meta_classified_at on concept_registry)
 
 ---
 
@@ -288,7 +282,7 @@ Migration history:
 
 ---
 
-## Validation Flows
+## Examples
 
 ### Processing pipeline
 
@@ -331,18 +325,6 @@ JSON
 curl http://127.0.0.1:8000/v1/entity-aliases/calibration
 ```
 
-### Block-scoped mention evidence
-
-```bash
-# Confirm MENTIONS edges are block-scoped
-docker compose -f infra/docker-compose.yml exec -T db psql -U neuronote -d neuronote -c \
-  "LOAD 'age'; SET search_path = ag_catalog, \"\$user\", public;
-   SELECT * FROM cypher('neuronote', \$\$ MATCH (b:Block)-[r:MENTIONS]->(e:Entity)
-   WHERE r.source_note_id='demo-note'
-   RETURN b.id, e.id, r.mention_text, r.start_offset, r.end_offset \$\$)
-   AS (block_id agtype, entity_id agtype, mention_text agtype, start_offset agtype, end_offset agtype);"
-```
-
 ### Backlinks
 
 ```bash
@@ -360,17 +342,6 @@ curl -sS -X PUT http://127.0.0.1:8000/v1/notes/source-note \
 JSON
 
 curl http://127.0.0.1:8000/v1/notes/target-note/backlinks
-```
-
-### Duplicate title guardrail
-
-```bash
-# Second note with same title returns 409 note_title_conflict
-curl -sS -X PUT http://127.0.0.1:8000/v1/notes/conflict-b \
-  -H 'Content-Type: application/json' \
-  --data-binary @- <<'JSON'
-{"note_id":"conflict-b","note_title":"Duplicate Guard","subject_id":"inbox","tags":[],"is_pinned":false,"is_archived":false,"content_json":{"type":"doc","content":[{"type":"paragraph","content":[{"type":"text","text":"B"}]}]},"content_text":"B","updated_at":"2026-03-13T13:11:00Z"}
-JSON
 ```
 
 ### Concept insight
@@ -397,13 +368,6 @@ curl -sS http://127.0.0.1:8000/v1/notes/demo-note/export/markdown --output demo-
 unzip -l demo-note.zip
 ```
 
-### Startup backfill status
-
-```bash
-curl http://127.0.0.1:8000/v1/backfill-status
-# Returns: total_notes, processed_notes, failed_notes, in_progress
-```
-
 ---
 
 ## Troubleshooting
@@ -415,5 +379,3 @@ curl http://127.0.0.1:8000/v1/backfill-status
 | spaCy model not found | Install the model inside the API container or use `rule-only` profile |
 | AGE concurrent lock error in logs | Known AGE issue with parallel note processing — non-critical, retries succeed |
 | Port already in use | Use `WEB_PORT=3001 API_PORT=8001 make compose-up` |
-
-Before declaring work complete, run the full gate sequence in `docs/release_checklist.md`.

@@ -52,3 +52,6 @@ web/.eslintcache
 # Legacy tracked tool dirs (keep untracked)
 /bin/
 /lib/
+
+# Docs 
+/docs/

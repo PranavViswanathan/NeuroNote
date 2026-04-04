@@ -1,18 +1,33 @@
 from __future__ import annotations
 
+import dataclasses
+import json
+import logging
+import re
 from dataclasses import dataclass
+from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, text as sa_text
 from sqlalchemy.orm import Session, sessionmaker
 
-from app.db.models.block import Block
 from app.db.engine import get_session_factory
+from app.db.models.block import Block
+from app.db.models.nlp_extraction_cache import NlpExtractionCache
 from app.db.repositories.entity_alias_repository import AliasRecord, EntityAliasRepository
+from app.db.repositories.graph_repository import GraphRepository
 from app.db.repositories.note_repository import NoteRepository
+from app.nlp.concept_meta import ConceptMetaClassifier
 from app.nlp.concept_registry import get_known_concepts, register_concepts
 from app.nlp.pipeline import NoteNlpPipeline
 from app.nlp.resolution.resolver import CanonicalAlias, EntityResolver
-from app.nlp.types import BlockTextInput
+from app.nlp.types import (
+    BlockTextInput,
+    ExtractedEntity,
+    ExtractedEntityMention,
+    ExtractedKeyphrase,
+    ExtractedRelation,
+    NoteExtractionResult,
+)
 from app.services.graph_sync_service import (
     CanonicalEntityMapping,
     GraphSyncPayload,
@@ -21,6 +36,8 @@ from app.services.graph_sync_service import (
 from shared.contracts.python.v1.process import ProcessNoteRequest
 
 _DEFAULT_GRAPH_NAME = "neuronote"
+_LOGGER = logging.getLogger(__name__)
+_SLUG_RE = re.compile(r"[^a-z0-9]+")
 
 
 class NoteNotFoundError(RuntimeError):
@@ -129,6 +146,72 @@ class NoteProcessingService:
             abbreviation_index=abbreviation_index,
         )
 
+    # ── NLP extraction cache ─────────────────────────────────────────────────
+
+    def _try_load_nlp_cache(
+        self, content_hash: str, profile: str
+    ) -> NoteExtractionResult | None:
+        """Return cached extraction or None. note_id is "" — callers re-stamp it.
+        Cache miss if stored profile differs (profile change forces fresh extraction).
+        """
+        try:
+            with self._session_factory() as session:
+                row = session.execute(
+                    select(NlpExtractionCache).where(
+                        NlpExtractionCache.content_hash == content_hash,
+                    )
+                ).scalar_one_or_none()
+            if row is None or row.extraction_profile != profile:
+                return None
+            data: dict = json.loads(row.result_json)  # type: ignore[type-arg]
+            return NoteExtractionResult(
+                note_id="",  # re-stamped by caller
+                content_hash=content_hash,
+                entities=[ExtractedEntity(**e) for e in data.get("entities", [])],
+                keyphrases=[ExtractedKeyphrase(**k) for k in data.get("keyphrases", [])],
+                relations=[ExtractedRelation(**r) for r in data.get("relations", [])],
+                embedding=data.get("embedding"),
+                entity_mentions=[
+                    ExtractedEntityMention(**m) for m in data.get("entity_mentions", [])
+                ],
+                summary=data.get("summary", ""),
+            )
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("nlp_extraction_cache read skipped", exc_info=True)
+            return None
+
+    def _save_nlp_cache(
+        self, content_hash: str, profile: str, result: NoteExtractionResult
+    ) -> None:
+        try:
+            from sqlalchemy.dialects.postgresql import insert as pg_insert
+
+            data = dataclasses.asdict(result)
+            data.pop("note_id", None)  # note_id is ephemeral, not cached
+            result_json = json.dumps(data)
+            stmt = (
+                pg_insert(NlpExtractionCache)
+                .values(
+                    content_hash=content_hash,
+                    extraction_profile=profile,
+                    result_json=result_json,
+                )
+                .on_conflict_do_update(
+                    index_elements=["content_hash"],
+                    set_={
+                        "extraction_profile": profile,
+                        "result_json": result_json,
+                    },
+                )
+            )
+            with self._session_factory() as session:
+                with session.begin():
+                    session.execute(stmt)
+        except Exception:  # noqa: BLE001
+            _LOGGER.debug("nlp_extraction_cache write skipped", exc_info=True)
+
+    # ── Core processing ──────────────────────────────────────────────────────
+
     def _persist_graph_and_vector(self, *, snapshot: ProcessedNoteSnapshot) -> None:
         alias_records = self._load_alias_records()
         # Merge entity-alias terms with all concepts extracted from previous notes.
@@ -139,14 +222,25 @@ class NoteProcessingService:
         known = get_known_concepts()
         dictionary_terms = base_terms + [c for c in known if c not in set(t.lower() for t in base_terms)]
 
-        result = self._pipeline.extract(
-            note_id=snapshot.note_id,
-            title=snapshot.note_title,
-            content_text=self._compose_pipeline_text(snapshot),
-            content_hash=snapshot.content_hash,
-            blocks=snapshot.blocks,
-            dictionary_terms=dictionary_terms,
-        )
+        profile = self._pipeline._settings.extraction_profile
+        cached_result = self._try_load_nlp_cache(snapshot.content_hash, profile)
+        if cached_result is not None:
+            _LOGGER.debug(
+                "nlp_extraction_cache hit for content_hash=%s profile=%s",
+                snapshot.content_hash[:8],
+                profile,
+            )
+            result = dataclasses.replace(cached_result, note_id=snapshot.note_id)
+        else:
+            result = self._pipeline.extract(
+                note_id=snapshot.note_id,
+                title=snapshot.note_title,
+                content_text=self._compose_pipeline_text(snapshot),
+                content_hash=snapshot.content_hash,
+                blocks=snapshot.blocks,
+                dictionary_terms=dictionary_terms,
+            )
+            self._save_nlp_cache(snapshot.content_hash, profile, result)
 
         # Register newly extracted concepts so subsequent notes see them.
         if result.entities:
@@ -185,6 +279,103 @@ class NoteProcessingService:
                         note_summary=result.summary,
                     )
                 )
+
+        # Classify synonym/subtopic relationships for new concepts.
+        # Runs in its own session after the graph sync commits.
+        self._run_concept_meta_classification(result.entities)
+
+    # ── Concept meta-classification ──────────────────────────────────────────
+
+    def _run_concept_meta_classification(self, entities: list[ExtractedEntity]) -> None:
+        """Classify synonym/subtopic edges for new concepts (meta_classified_at IS NULL only).
+        Runs in its own session after graph sync commits.
+        """
+        cfg = self._pipeline._settings
+        if not cfg.llm_api_key:
+            return
+
+        concept_texts = [
+            e.text for e in entities if e.label == "concept"
+        ]
+        if not concept_texts:
+            return
+
+        try:
+            with self._session_factory() as session:
+                rows = session.execute(
+                    sa_text(
+                        "SELECT concept_text FROM public.concept_registry "
+                        "WHERE concept_text = ANY(:texts) AND meta_classified_at IS NULL"
+                    ),
+                    {"texts": concept_texts},
+                ).all()
+                unclassified = [r[0] for r in rows]
+        except Exception:
+            _LOGGER.debug("concept_meta: failed to query unclassified concepts", exc_info=True)
+            return
+
+        if not unclassified:
+            return
+
+        # Pass unclassified concepts + a sample of known concepts as context
+        # so the SLM can spot cross-note synonyms and hierarchies.
+        known = get_known_concepts()[:60]
+        all_concepts = list(dict.fromkeys(unclassified + known))
+
+        classifier = ConceptMetaClassifier(
+            api_key=cfg.llm_api_key,
+            model=cfg.llm_model,
+        )
+        meta = classifier.classify(all_concepts)
+
+        if meta.synonym_pairs or meta.subtopic_pairs:
+            now_iso = datetime.now(timezone.utc).isoformat()
+            try:
+                with self._session_factory() as session:
+                    if not self._is_postgres(session):
+                        return
+                    repo = GraphRepository(session=session)
+                    with session.begin():
+                        for a, b in meta.synonym_pairs:
+                            repo.upsert_typed_edge(
+                                source_label="Entity",
+                                source_id="concept-" + _SLUG_RE.sub("-", a).strip("-"),
+                                target_label="Entity",
+                                target_id="concept-" + _SLUG_RE.sub("-", b).strip("-"),
+                                relation_type="SYNONYM_OF",
+                                properties={"confidence": 0.9, "created_at": now_iso},
+                                graph_name=self._graph_name,
+                            )
+                        for specific, broader in meta.subtopic_pairs:
+                            repo.upsert_typed_edge(
+                                source_label="Entity",
+                                source_id="concept-" + _SLUG_RE.sub("-", specific).strip("-"),
+                                target_label="Entity",
+                                target_id="concept-" + _SLUG_RE.sub("-", broader).strip("-"),
+                                relation_type="SUBTOPIC_OF",
+                                properties={"confidence": 0.85, "created_at": now_iso},
+                                graph_name=self._graph_name,
+                            )
+            except Exception:
+                _LOGGER.debug("concept_meta: failed to write edges", exc_info=True)
+                return
+
+        self._mark_concepts_classified(unclassified)
+
+    def _mark_concepts_classified(self, concept_texts: list[str]) -> None:
+        try:
+            now_dt = datetime.now(timezone.utc)
+            with self._session_factory() as session:
+                with session.begin():
+                    session.execute(
+                        sa_text(
+                            "UPDATE public.concept_registry SET meta_classified_at = :now "
+                            "WHERE concept_text = ANY(:texts)"
+                        ),
+                        {"now": now_dt, "texts": concept_texts},
+                    )
+        except Exception:
+            _LOGGER.debug("concept_meta: failed to mark classified", exc_info=True)
 
     def process_note(self, payload: ProcessNoteRequest) -> None:
         snapshot = self._load_snapshot(payload.note_id)

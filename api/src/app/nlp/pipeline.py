@@ -31,21 +31,13 @@ _EXTRACTION_CACHE_MAX = 512
 class NoteNlpPipeline:
     """Orchestrates NLP extraction for a single note.
 
-    Supports three extraction profiles (controlled by ``NLP_EXTRACTION_PROFILE``):
+    Profiles (``NLP_EXTRACTION_PROFILE``):
+    - ``rule-only``    — dictionary + regex; no external deps.
+    - ``hybrid-spacy`` — dictionary + spaCy NER + regex fallback.
+    - ``llm-enhanced`` — Claude via :class:`SLMExtractor`; requires ``ANTHROPIC_API_KEY``.
 
-    - ``rule-only``   — dictionary matching + deterministic regex; no external deps.
-    - ``hybrid-spacy``— dictionary + spaCy NER + regex fallback; requires spaCy + model.
-    - ``llm-enhanced``— Claude API extraction via :class:`SLMExtractor`; highest quality;
-                        requires ``ANTHROPIC_API_KEY``.
-
-    Results are cached in the module-level LRU by ``content_hash``.  Two notes with
-    identical text share one extraction result; changing a note produces a new hash and
-    the stale entry is evicted naturally once the cache reaches ``_EXTRACTION_CACHE_MAX``.
-
-    spaCy model handles are cached at the class level behind a ``threading.Lock`` so that
-    multiple worker threads share one loaded model rather than loading redundant copies.
-    If the model is missing or fails to load the pipeline silently falls back to the
-    rule-based layers without raising.
+    spaCy model handles are cached at the class level so worker threads share one instance.
+    Missing model falls back to rule-based silently.
     """
 
     _MODEL_HANDLE_CACHE: dict[str, object | None] = {}

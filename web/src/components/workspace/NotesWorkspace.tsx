@@ -1140,6 +1140,18 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
             Graph
           </button>
         </div>
+        {process.env.NEXT_PUBLIC_AUTH_ENABLED === "true" && (
+          <button
+            type="button"
+            className="app-nav-logout"
+            onClick={async () => {
+              await fetch("/api/auth/logout", { method: "POST" });
+              window.location.href = "/login";
+            }}
+          >
+            Sign out
+          </button>
+        )}
       </nav>
 
       {appView === "graph" ? (
