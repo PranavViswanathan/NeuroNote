@@ -47,8 +47,8 @@ Web: `http://localhost:3000` · API: `http://localhost:8000`
 - Three profiles: `rule-only` (default), `hybrid-spacy`, `llm-enhanced`
 - LRU extraction cache keyed by `content_hash` — notes with identical text share one result; backed by `nlp_extraction_cache` DB table for cross-restart persistence
 - `SLMExtractor` (`slm_extractor.py`) wraps Claude API for `llm-enhanced` profile — uses sync `anthropic.Anthropic`
-- `ConceptMetaClassifier` (`concept_meta.py`) — called after each note's graph sync; uses Claude to identify `SYNONYM_OF` pairs (e.g. "ML" ↔ "machine learning") and `SUBTOPIC_OF` pairs (e.g. "backpropagation" → "neural networks") among newly extracted concepts; writes edges to AGE; uses sync `anthropic.Anthropic`. Guards against re-classification via `concept_registry.meta_classified_at` — already-classified concepts are always skipped.
-- `ConceptInsightService` (`services/concept_insight_service.py`) wraps Claude for on-demand insight generation — uses async `anthropic.AsyncAnthropic`; cached in `concept_insight_cache`
+- `ConceptMetaClassifier` (`concept_meta.py`) — called after each note's graph sync; uses the LLM to identify `SYNONYM_OF` pairs (e.g. "ML" ↔ "machine learning") and `SUBTOPIC_OF` pairs (e.g. "backpropagation" → "neural networks") among newly extracted concepts; writes edges to AGE; uses sync `LLMClient`. Guards against re-classification via `concept_registry.meta_classified_at` — already-classified concepts are always skipped.
+- `ConceptInsightService` (`services/concept_insight_service.py`) calls the LLM for on-demand insight generation — uses async `AsyncLLMClient`; cached in `concept_insight_cache`
 
 ### Graph sync (`api/src/app/services/graph_sync_service.py`)
 - Delete-and-replace semantics: on each note save, all AGE nodes/edges sourced from that note are deleted then re-created
@@ -127,7 +127,9 @@ Frontend tests: `web/src/**/*.test.tsx`
 | `NLP_EXTRACTION_PROFILE` | `api/.env` or compose | `rule-only` / `hybrid-spacy` / `llm-enhanced` |
 | `NLP_MODEL_NAME` | `api/.env` or compose | spaCy model (e.g. `spacy:en_core_web_sm`) |
 | `NLP_ENTITY_SEED_TERMS` | `api/.env` or compose | Comma-separated terms for deterministic seeding |
-| `ANTHROPIC_API_KEY` | `api/.env` or compose | Enables LLM extraction, concept insights, and concept meta-classification |
+| `LLM_API_KEY` | `api/.env` or compose | API key for the LLM provider. Falls back to `ANTHROPIC_API_KEY` if not set. |
+| `LLM_BASE_URL` | `api/.env` or compose | Base URL for any OpenAI-compatible endpoint. Default: `https://api.anthropic.com/v1/`. Examples: `https://api.openai.com/v1`, `https://api.groq.com/openai/v1`, `http://localhost:11434/v1` |
+| `ANTHROPIC_API_KEY` | `api/.env` or compose | Legacy fallback for `LLM_API_KEY` when using Anthropic. |
 | `NEXT_PUBLIC_API_BASE_URL` | `web/.env` | API URL for the browser (`http://localhost:8000`) |
 | `APP_PASSWORD` | `infra/.env` or compose | Password gate for the web UI. Unset = disabled (dev mode). When set, all routes require login. |
 | `SESSION_SECRET` | `infra/.env` or compose | Secret for HMAC-SHA256 session token. Falls back to `APP_PASSWORD` if unset. Use `openssl rand -hex 32`. |

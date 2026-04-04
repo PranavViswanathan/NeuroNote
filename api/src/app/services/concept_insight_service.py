@@ -5,7 +5,7 @@ When a user clicks a concept node in any graph view the frontend calls
 
 1. Full-text searches all notes for the concept label (title + body).
 2. Builds a context string of up to ``_MAX_NOTES`` notes (600 chars each).
-3. If ``ANTHROPIC_API_KEY`` is configured, calls Claude with a strictly-grounded
+3. If ``LLM_API_KEY`` is configured, calls the LLM with a strictly-grounded
    system prompt that forbids external knowledge in the insight paragraph.
 4. Returns note references (with snippets), the insight, and learning links.
 
@@ -16,7 +16,7 @@ becomes stale automatically when any relevant note changes.
 
 Graceful degradation:
 - No API key → ``insight`` is ``None``; note references still return.
-- Claude timeout / parse error → same as no API key for that request.
+- LLM timeout / parse error → same as no API key for that request.
 - No matching notes → empty ``note_refs``, ``notes_found = 0``.
 - Non-PostgreSQL DB (SQLite dev) → cache ops silently skipped.
 """
@@ -28,13 +28,13 @@ import logging
 import re
 from datetime import datetime, timezone
 
-import anthropic
 from sqlalchemy import func, or_, select, text
 from sqlalchemy.orm import Session
 
 from app.db.models.concept_insight_cache import ConceptInsightCache
 from app.db.models.note import Note
 from app.nlp.config import NlpSettings, get_nlp_settings
+from app.nlp.llm_client import AsyncLLMClient
 from shared.contracts.python.v1.graph import (
     ConceptInsightResponse,
     ConceptLearningLink,
@@ -63,7 +63,7 @@ Respond ONLY with valid JSON in exactly this shape (no markdown fences):
 }"""
 
 _MAX_NOTES = 10
-_MAX_CONTENT_PER_NOTE = 600   # chars of content passed to Claude per note
+_MAX_CONTENT_PER_NOTE = 600   # chars of content passed to LLM per note
 _SNIPPET_BEFORE = 60          # chars before the match in the UI snippet
 _SNIPPET_AFTER = 90           # chars after the match in the UI snippet
 
@@ -84,6 +84,7 @@ class ConceptInsightService:
         cfg = settings or get_nlp_settings()
         self._api_key: str = cfg.llm_api_key
         self._model: str = cfg.llm_model
+        self._base_url: str = cfg.llm_base_url
 
     # ── Public ──────────────────────────────────────────────────────────────
 
@@ -114,7 +115,7 @@ class ConceptInsightService:
                 ]
             else:
                 context = self._build_context(concept_label, notes)
-                raw = await self._call_claude(concept_label, context)
+                raw = await self._call_llm(concept_label, context)
                 insight = raw.get("insight") or None
                 links = [
                     ConceptLearningLink(**lnk)
@@ -314,23 +315,21 @@ class ConceptInsightService:
             parts.append(f"[Note {i}: {note.note_title!r}]\n{content}")
         return "\n\n---\n\n".join(parts)
 
-    async def _call_claude(self, label: str, context: str) -> dict:  # type: ignore[type-arg]
+    async def _call_llm(self, label: str, context: str) -> dict:  # type: ignore[type-arg]
         user_msg = (
             f'Concept to analyse: "{label}"\n\n'
             f"User notes mentioning this concept:\n\n{context}"
         )
-        client = anthropic.AsyncAnthropic(api_key=self._api_key)
+        raw = await AsyncLLMClient(
+            api_key=self._api_key,
+            model=self._model,
+            base_url=self._base_url,
+            timeout_s=12.0,
+        ).complete(system=_SYSTEM_PROMPT, user=user_msg, max_tokens=1024)
+        if not raw:
+            return {}
+        raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.S).strip()
         try:
-            msg = await client.messages.create(
-                model=self._model,
-                max_tokens=1024,
-                system=_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_msg}],
-                timeout=12.0,
-            )
-            raw = msg.content[0].text.strip()  # type: ignore[union-attr]
-            # Strip markdown fences if the model wraps the JSON
-            raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.S).strip()
             return json.loads(raw)  # type: ignore[no-any-return]
         except Exception:  # noqa: BLE001
             return {}

@@ -55,6 +55,7 @@ class NlpSettings:
     # LLM-enhanced profile settings
     llm_model: str = "claude-haiku-4-5-20251001"
     llm_api_key: str = ""
+    llm_base_url: str = "https://api.anthropic.com/v1/"
     llm_timeout_ms: int = 8000
     use_semantic_embeddings: bool = False
 
@@ -78,7 +79,8 @@ def get_nlp_settings() -> NlpSettings:
             default=_DEFAULT_SEED_TERMS,
         ),
         llm_model=os.getenv("NLP_LLM_MODEL", "claude-haiku-4-5-20251001"),
-        llm_api_key=os.getenv("ANTHROPIC_API_KEY", ""),
+        llm_api_key=os.getenv("LLM_API_KEY") or os.getenv("ANTHROPIC_API_KEY", ""),
+        llm_base_url=os.getenv("LLM_BASE_URL", "https://api.anthropic.com/v1/"),
         llm_timeout_ms=_as_int(os.getenv("NLP_LLM_TIMEOUT_MS"), default=8000),
         use_semantic_embeddings=_as_bool(
             os.getenv("NLP_USE_SEMANTIC_EMBEDDINGS"), default=False

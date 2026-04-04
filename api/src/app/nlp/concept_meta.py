@@ -9,10 +9,11 @@ Only concepts with ``meta_classified_at IS NULL`` in ``concept_registry`` are pr
 """
 from __future__ import annotations
 
-import json
 import logging
 import re
 from dataclasses import dataclass, field
+
+from app.nlp.llm_client import LLMClient
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -44,37 +45,31 @@ class ConceptMetaResult:
 
 
 class ConceptMetaClassifier:
-    def __init__(self, *, api_key: str, model: str, timeout_s: float = 15.0) -> None:
+    def __init__(self, *, api_key: str, model: str, base_url: str, timeout_s: float = 15.0) -> None:
         self._api_key = api_key
         self._model = model
+        self._base_url = base_url
         self._timeout_s = timeout_s
 
     def classify(self, concepts: list[str]) -> ConceptMetaResult:
         """Return synonym/subtopic pairs among *concepts*. Never raises."""
+        import json
+
         if len(concepts) < 2:
             return ConceptMetaResult()
 
         user_msg = "Concepts:\n" + "\n".join(f"- {c}" for c in concepts)
 
-        try:
-            import anthropic
+        raw = LLMClient(
+            api_key=self._api_key,
+            model=self._model,
+            base_url=self._base_url,
+            timeout_s=self._timeout_s,
+        ).complete(system=_SYSTEM_PROMPT, user=user_msg, max_tokens=512)
 
-            client = anthropic.Anthropic(api_key=self._api_key or None)
-            msg = client.messages.create(
-                model=self._model,
-                max_tokens=512,
-                system=_SYSTEM_PROMPT,
-                messages=[{"role": "user", "content": user_msg}],
-                timeout=self._timeout_s,
-            )
-        except Exception:
-            _LOGGER.debug("ConceptMetaClassifier: API call failed", exc_info=True)
+        if not raw:
             return ConceptMetaResult()
 
-        if not msg.content:
-            return ConceptMetaResult()
-
-        raw = msg.content[0].text.strip()  # type: ignore[union-attr]
         # Strip markdown fences if the model wrapped the JSON
         raw = re.sub(r"^```(?:json)?\s*|\s*```$", "", raw, flags=re.S).strip()
 

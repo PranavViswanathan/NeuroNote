@@ -102,7 +102,8 @@ Your `.env.prod` should look like:
 ```
 DOMAIN=notes.yourdomain.com
 API_KEY=a3f9c2d1e8b7f4...       # API header key — used by internal service calls
-ANTHROPIC_API_KEY=sk-ant-...    # your key, server-side only
+LLM_API_KEY=sk-ant-...          # your LLM provider key, server-side only
+LLM_BASE_URL=                   # optional: defaults to https://api.anthropic.com/v1/
 DB_PASSWORD=8b7e4f1c2a9d3e...
 NLP_EXTRACTION_PROFILE=llm-enhanced
 
@@ -111,7 +112,7 @@ APP_PASSWORD=choose-a-strong-password   # what users type at the login screen
 SESSION_SECRET=                         # openssl rand -hex 32
 ```
 
-`APP_PASSWORD` and `SESSION_SECRET` are optional but strongly recommended for any deployment accessible over the internet. When `APP_PASSWORD` is set, all web routes are protected by a login page.
+`LLM_BASE_URL` defaults to `https://api.anthropic.com/v1/`. Set it to any OpenAI-compatible endpoint (OpenAI, Groq, Mistral, Ollama, etc.) and update `NLP_LLM_MODEL` to match. `APP_PASSWORD` and `SESSION_SECRET` are optional but strongly recommended for public deployments.
 
 **Never commit `.env.prod` to git.** It is in `.gitignore`.
 
@@ -218,7 +219,7 @@ Run this before every update. Store backups off the VPS (download to your machin
 | `npm run build` hangs or times out | First build on a small VPS can take 5+ min; wait it out; subsequent builds are fast |
 | Migrations fail with `relation does not exist` | DB extensions not enabled — run: `docker compose -f infra/docker-compose.yml -f infra/docker-compose.prod.yml --env-file infra/.env.prod exec db psql -U neuronote -d neuronote -f /docker-entrypoint-initdb.d/001-enable-extensions.sql` then retry `make prod-migrate` |
 | Graph features not working | Verify AGE extension is enabled (see above) |
-| AI insight panel shows config hint | `ANTHROPIC_API_KEY` is empty or wrong in `.env.prod` — fix and run `make deploy-prod` |
+| AI insight panel shows config hint | `LLM_API_KEY` is empty or wrong in `.env.prod` — fix and run `make deploy-prod` |
 | VPS runs out of memory during build | Hetzner CX22 (4 GB) is the minimum; upgrade to CX32 (8 GB) if builds consistently fail |
 | Always redirected to `/login` even after correct password | `SESSION_SECRET` changed between deploys (or was empty and `APP_PASSWORD` changed) — existing cookies are invalidated; users must log in again after any secret rotation |
 | Login page not appearing (loads directly) | `APP_PASSWORD` is not set in `.env.prod` — the gate is disabled by design; add the variable and run `make deploy-prod` |

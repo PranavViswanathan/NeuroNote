@@ -160,7 +160,7 @@ function InsightSection({ insight }: { insight: string | null }) {
         <div className="concept-insight-text">{insight}</div>
       ) : (
         <p className="concept-insight-no-llm">
-          Set <code>ANTHROPIC_API_KEY</code> in your environment to enable AI insights.
+          Set <code>LLM_API_KEY</code> in your environment to enable AI insights.
         </p>
       )}
     </div>

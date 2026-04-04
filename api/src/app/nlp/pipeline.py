@@ -34,7 +34,7 @@ class NoteNlpPipeline:
     Profiles (``NLP_EXTRACTION_PROFILE``):
     - ``rule-only``    — dictionary + regex; no external deps.
     - ``hybrid-spacy`` — dictionary + spaCy NER + regex fallback.
-    - ``llm-enhanced`` — Claude via :class:`SLMExtractor`; requires ``ANTHROPIC_API_KEY``.
+    - ``llm-enhanced`` — LLM via :class:`SLMExtractor`; requires ``LLM_API_KEY``.
 
     spaCy model handles are cached at the class level so worker threads share one instance.
     Missing model falls back to rule-based silently.
@@ -52,6 +52,7 @@ class NoteNlpPipeline:
             self._slm_extractor = SLMExtractor(
                 model=self._settings.llm_model,
                 api_key=self._settings.llm_api_key,
+                base_url=self._settings.llm_base_url,
                 timeout_ms=self._settings.llm_timeout_ms,
             )
 

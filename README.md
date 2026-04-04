@@ -64,9 +64,11 @@ NLP_EXTRACTION_PROFILE=hybrid-spacy \
 NLP_MODEL_NAME=spacy:en_core_web_sm \
 make compose-up
 
-# LLM-enhanced (requires ANTHROPIC_API_KEY)
+# LLM-enhanced (any OpenAI-compatible provider)
 NLP_EXTRACTION_PROFILE=llm-enhanced \
-ANTHROPIC_API_KEY=sk-ant-... \
+LLM_API_KEY=sk-ant-... \
+LLM_BASE_URL=https://api.anthropic.com/v1/ \
+NLP_LLM_MODEL=claude-haiku-4-5-20251001 \
 make compose-up
 ```
 
@@ -76,6 +78,16 @@ NLP_ENTITY_SEED_TERMS="machine learning,knowledge graph,entity resolution" \
 make compose-up
 ```
 
+**LLM provider configuration** (`LLM_BASE_URL` + `NLP_LLM_MODEL`):
+
+| Provider | `LLM_BASE_URL` | Example `NLP_LLM_MODEL` |
+|---|---|---|
+| Anthropic (default) | `https://api.anthropic.com/v1/` | `claude-haiku-4-5-20251001` |
+| OpenAI | `https://api.openai.com/v1` | `gpt-4o-mini` |
+| Groq | `https://api.groq.com/openai/v1` | `llama-3.3-70b-versatile` |
+| Mistral | `https://api.mistral.ai/v1` | `mistral-small-latest` |
+| Ollama (local) | `http://localhost:11434/v1` | `llama3.2` |
+
 ### Concept Insight Panel
 
 When you click any non-note node (concept, entity, relation) in either graph view, a panel opens showing:
@@ -84,7 +96,7 @@ When you click any non-note node (concept, entity, relation) in either graph vie
 2. **AI Insight** — a synthesis paragraph drawn *only* from your notes (requires `ANTHROPIC_API_KEY`)
 3. **Further Learning** — AI-suggested reputable external resources (clearly labeled; verify before visiting)
 
-Without `ANTHROPIC_API_KEY`, notes list and snippets still render — the insight section shows a config hint.
+Without `LLM_API_KEY`, notes list and snippets still render — the insight section shows a config hint.
 
 **API:**
 ```bash

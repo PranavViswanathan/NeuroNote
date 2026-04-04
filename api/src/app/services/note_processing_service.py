@@ -325,6 +325,7 @@ class NoteProcessingService:
         classifier = ConceptMetaClassifier(
             api_key=cfg.llm_api_key,
             model=cfg.llm_model,
+            base_url=cfg.llm_base_url,
         )
         meta = classifier.classify(all_concepts)
 
