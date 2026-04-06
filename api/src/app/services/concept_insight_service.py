@@ -258,28 +258,27 @@ class ConceptInsightService:
                 text('SET search_path = ag_catalog, "$user", public')
             )
 
-            # Embed label as a JSON string so special characters are safely escaped.
-            # Replace % with %% so SQLAlchemy's text() doesn't treat it as a
-            # bind-parameter placeholder.
-            label_json = json.dumps(label.lower()).replace("%", "%%")
-            rows = self._session.execute(
-                text(
-                    f"""
-                    SELECT * FROM cypher('neuronote', $$
-                        MATCH ()-[m:MENTIONS]->(e:Entity)
-                        WHERE toLower(e.name) = {label_json}
-                        RETURN DISTINCT m.source_note_id
-                        UNION
-                        MATCH ()-[m:MENTIONS]->(e:Entity)-[:SYNONYM_OF]-(syn:Entity)
-                        WHERE toLower(syn.name) = {label_json}
-                        RETURN DISTINCT m.source_note_id
-                        UNION
-                        MATCH ()-[m:MENTIONS]->(specific:Entity)-[:SUBTOPIC_OF]->(broader:Entity)
-                        WHERE toLower(broader.name) = {label_json}
-                        RETURN DISTINCT m.source_note_id
-                    $$) AS (source_note_id agtype)
-                    """
-                )
+            label_json = json.dumps(label.lower())
+            cypher_query = f"""
+                MATCH ()-[m:MENTIONS]->(e:Entity)
+                WHERE toLower(e.name) = {label_json}
+                RETURN DISTINCT m.source_note_id
+                UNION
+                MATCH ()-[m:MENTIONS]->(e:Entity)-[:SYNONYM_OF]-(syn:Entity)
+                WHERE toLower(syn.name) = {label_json}
+                RETURN DISTINCT m.source_note_id
+                UNION
+                MATCH ()-[m:MENTIONS]->(specific:Entity)-[:SUBTOPIC_OF]->(broader:Entity)
+                WHERE toLower(broader.name) = {label_json}
+                RETURN DISTINCT m.source_note_id
+            """
+            # Use exec_driver_sql so the Cypher query is a bound driver parameter.
+            # This bypasses SQLAlchemy's _pyformat_pattern scanner, which would
+            # misinterpret %(name)s patterns in user-controlled label text.
+            conn = self._session.connection()
+            rows = conn.exec_driver_sql(
+                "SELECT * FROM ag_catalog.cypher(%s, %s) AS (source_note_id ag_catalog.agtype)",
+                ("neuronote", cypher_query),
             ).fetchall()
 
             note_ids: list[str] = []

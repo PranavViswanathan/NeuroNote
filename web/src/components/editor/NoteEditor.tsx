@@ -448,6 +448,9 @@ export function NoteEditor({
             return { status: "failed" as const };
           }
           const result = await fetchProcessingStatus(baseUrl, jobId);
+          if (result.status === "failed" && result.error) {
+            console.error("[NeuroNote] Processing failed:", result.error);
+          }
           return { status: result.status };
         },
         onStatus: (status) => {

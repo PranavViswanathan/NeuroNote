@@ -36,12 +36,33 @@ class GraphRepository:
         items: list[str] = []
         for key, value in properties.items():
             self._validate_label(key)
-            # Escape % so SQLAlchemy's text() doesn't interpret %(name)s patterns
-            # in user content as bind parameters. SQLAlchemy converts %% → % before
-            # sending to PostgreSQL, so the stored value is unchanged.
-            json_value = json.dumps(value).replace("%", "%%")
-            items.append(f"{key}: {json_value}")
+            items.append(f"{key}: {json.dumps(value)}")
         return "{" + ", ".join(items) + "}"
+
+    def _exec_cypher(self, graph_name: str, query: str) -> list:
+        """Execute a Cypher query using exec_driver_sql with no parameters.
+
+        AGE requires graph_name and query to be literal SQL string constants —
+        bound parameters ($1/$2) are rejected at plan time with "a name constant
+        is expected".  Both values are therefore embedded directly in the SQL.
+
+        Dollar-quoting ($$ ... $$) handles the Cypher query so single-quotes in
+        user content don't break the SQL string.
+
+        exec_driver_sql bypasses SQLAlchemy's _pyformat_pattern scanner (which
+        text() applies at compile time).  Passing parameters=None tells psycopg3
+        to skip its own placeholder-scan step and send the SQL to PostgreSQL
+        verbatim — so %(name)s patterns in user content are never mistaken for
+        bind parameters by either layer.
+        """
+        sql = (
+            "SELECT * FROM ag_catalog.cypher("
+            f"'{graph_name}', "
+            f"$${query}$$"
+            ") AS (value ag_catalog.agtype)"
+        )
+        conn = self._session.connection()
+        return conn.exec_driver_sql(sql, None).all()
 
     def ensure_graph_exists(self, *, graph_name: str = "neuronote") -> None:
         self._validate_graph_name(graph_name)
@@ -105,15 +126,7 @@ class GraphRepository:
         SET n += row
         RETURN count(n)
         """
-        self._session.execute(
-            text(
-                """
-                SELECT *
-                FROM ag_catalog.cypher('%s', $$ %s $$) AS (value ag_catalog.agtype)
-                """
-                % (graph_name, query)
-            )
-        ).first()
+        self._exec_cypher(graph_name, query)
 
     def upsert_node(
         self,
@@ -134,15 +147,7 @@ class GraphRepository:
         RETURN n
         """
 
-        self._session.execute(
-            text(
-                """
-                SELECT *
-                FROM ag_catalog.cypher('%s', $$ %s $$) AS (value ag_catalog.agtype)
-                """
-                % (graph_name, query)
-            )
-        ).first()
+        self._exec_cypher(graph_name, query)
 
     def upsert_edge(
         self,
@@ -190,15 +195,7 @@ class GraphRepository:
         RETURN r
         """
 
-        self._session.execute(
-            text(
-                """
-                SELECT *
-                FROM ag_catalog.cypher('%s', $$ %s $$) AS (value ag_catalog.agtype)
-                """
-                % (graph_name, query)
-            )
-        ).first()
+        self._exec_cypher(graph_name, query)
 
     def delete_source_artifacts(
         self,
@@ -215,15 +212,7 @@ class GraphRepository:
         DELETE r
         RETURN 1
         """
-        self._session.execute(
-            text(
-                """
-                SELECT *
-                FROM ag_catalog.cypher('%s', $$ %s $$) AS (value ag_catalog.agtype)
-                """
-                % (graph_name, delete_edges_query)
-            )
-        ).all()
+        self._exec_cypher(graph_name, delete_edges_query)
 
         delete_nodes_query = f"""
         MATCH (n)
@@ -231,15 +220,7 @@ class GraphRepository:
         DETACH DELETE n
         RETURN 1
         """
-        self._session.execute(
-            text(
-                """
-                SELECT *
-                FROM ag_catalog.cypher('%s', $$ %s $$) AS (value ag_catalog.agtype)
-                """
-                % (graph_name, delete_nodes_query)
-            )
-        ).all()
+        self._exec_cypher(graph_name, delete_nodes_query)
 
     def fetch_local_neighborhood(
         self,
@@ -262,15 +243,7 @@ class GraphRepository:
         LIMIT {limit}
         """
 
-        rows = self._session.execute(
-            text(
-                """
-                SELECT *
-                FROM ag_catalog.cypher('%s', $$ %s $$) AS (value ag_catalog.agtype)
-                """
-                % (graph_name, query)
-            )
-        ).all()
+        rows = self._exec_cypher(graph_name, query)
         return [str(row[0]) for row in rows]
 
     def upsert_embedding(
