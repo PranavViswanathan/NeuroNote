@@ -8,6 +8,7 @@ from sqlalchemy.orm import Session
 
 from app.db.models.block import Block
 from app.db.repositories.block_repository import BlockRepository
+from app.db.repositories.embedding_repository import EmbeddingRepository
 from app.db.repositories.graph_repository import GraphRepository
 from app.nlp.types import (
     ExtractedEntity,
@@ -514,7 +515,7 @@ class GraphSyncService:
         self._upsert_relations(payload=payload, now_iso=now_iso)
 
         if payload.embedding is not None:
-            self._repository.upsert_embedding(
+            EmbeddingRepository(self._session).upsert_embedding(
                 item_id=payload.note_id,
                 item_type="note",
                 embedding=payload.embedding,

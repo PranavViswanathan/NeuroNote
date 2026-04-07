@@ -1,8 +1,10 @@
+import type { ProcessStatusResponse } from "../../../../shared/contracts/ts/v1/process";
+
 type ProcessStatus = "queued" | "running" | "completed" | "failed";
 
 interface ProcessPollingOptions {
-  fetchStatus: () => Promise<{ status: ProcessStatus }>;
-  onStatus: (status: ProcessStatus) => void;
+  fetchStatus: () => Promise<ProcessStatusResponse>;
+  onStatus: (response: ProcessStatusResponse) => void;
   intervalMs?: number;
 }
 
@@ -30,13 +32,13 @@ export function createProcessPollingController(
       return;
     }
     try {
-      const result = await options.fetchStatus();
-      options.onStatus(result.status);
+      const response = await options.fetchStatus();
+      options.onStatus(response);
 
       if (!isRunning) {
         return;
       }
-      if (TERMINAL_STATUSES.includes(result.status)) {
+      if (TERMINAL_STATUSES.includes(response.status)) {
         isRunning = false;
         timer = null;
         return;
@@ -45,7 +47,13 @@ export function createProcessPollingController(
     } catch {
       isRunning = false;
       timer = null;
-      options.onStatus("failed");
+      options.onStatus({
+        job_id: "",
+        status: "failed",
+        created_at: "",
+        updated_at: "",
+        error: "Polling failed",
+      });
     }
 
   };

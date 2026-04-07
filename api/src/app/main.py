@@ -22,6 +22,7 @@ from app.routes.entity_aliases import router as entity_aliases_router
 from app.routes.export import router as export_router
 from app.routes.graph import router as graph_router
 from app.routes.health import router as health_router
+from app.routes.import_ import router as import_router
 from app.routes.media import router as media_router
 from app.routes.notes import router as notes_router
 from app.routes.process import router as process_router
@@ -144,3 +145,4 @@ app.include_router(export_router, prefix="/v1")
 app.include_router(graph_router, prefix="/v1")
 app.include_router(connections_router, prefix="/v1")
 app.include_router(concepts_router, prefix="/v1")
+app.include_router(import_router, prefix="/v1")

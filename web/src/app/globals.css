@@ -692,6 +692,44 @@ body {
   padding-bottom: 6px;
 }
 
+/* Extraction summary badge */
+.extraction-summary-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  background: var(--panel-bg);
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+  cursor: pointer;
+  transition: opacity 0.2s ease;
+  white-space: nowrap;
+}
+
+.extraction-summary-badge:hover {
+  opacity: 0.7;
+}
+
+.extraction-summary-counts {
+  color: var(--text-secondary);
+}
+
+.extraction-summary-entities {
+  display: inline-flex;
+  gap: 4px;
+}
+
+.extraction-entity-pill {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--accent-subtle);
+  color: var(--accent);
+  font-size: var(--text-xs);
+}
+
 /* Note options 3-dots menu */
 .note-options-menu {
   position: relative;
@@ -1436,6 +1474,89 @@ body {
   background: var(--accent);
   color: white;
   border: none;
+}
+
+/* Quick capture modal */
+.quick-capture-body {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.quick-capture-textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 12px;
+  border: 1px solid var(--panel-border);
+  border-radius: 8px;
+  font-size: var(--text-base);
+  font-family: inherit;
+  color: var(--text-strong);
+  background: var(--panel-bg);
+  resize: vertical;
+  transition: border-color 150ms ease;
+}
+
+.quick-capture-textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+
+.quick-capture-footer {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.quick-capture-hint {
+  font-size: var(--text-xs);
+  color: var(--text-muted);
+}
+
+.quick-capture-submit {
+  padding: 8px 16px;
+  border-radius: 8px;
+  font-size: var(--text-base);
+  font-weight: 500;
+  font-family: inherit;
+  cursor: pointer;
+  background: var(--accent);
+  color: white;
+  border: none;
+  transition: opacity 150ms ease;
+}
+
+.quick-capture-submit:hover {
+  opacity: 0.85;
+}
+
+/* File drop zone */
+.file-drop-zone {
+  position: relative;
+}
+
+.file-drop-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: var(--z-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(29, 109, 79, 0.08);
+  border: 2px dashed var(--accent);
+  border-radius: 12px;
+  pointer-events: none;
+}
+
+.file-drop-label {
+  padding: 12px 24px;
+  border-radius: 8px;
+  background: var(--panel-bg);
+  color: var(--accent);
+  font-size: var(--text-base);
+  font-weight: 600;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
 }
 
 .modal-actions button.primary:hover {

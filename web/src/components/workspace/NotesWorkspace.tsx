@@ -19,22 +19,22 @@ import { applyTemplate, type Template } from "../../lib/templates";
 import {
   ApiClientError,
   deleteNote,
-  fetchGlobalGraph,
-  fetchNoteBacklinks,
   getNote,
+  importNote,
   listNotes,
   saveNote,
 } from "../../lib/api-client";
 import type { WorkspaceFilters } from "../../lib/workspace/types";
-import {
-  buildQuickSwitchItems,
-  filterQuickSwitchItems,
-  type QuickSwitchItem,
-} from "../../lib/workspace/quick-switch";
+import type { QuickSwitchItem } from "../../lib/workspace/quick-switch";
 import type { NoteSummary } from "../../../../shared/contracts/ts/v1/note";
-import type { BacklinkItem } from "../../../../shared/contracts/ts/v1/backlink";
-import type { GlobalGraphResponse } from "../../../../shared/contracts/ts/v1/graph";
 import { getTagColor } from "../../lib/ui/tag-colors";
+import { makeNewNoteId } from "../../lib/utils/note-id";
+import { useBacklinks } from "../../lib/hooks/useBacklinks";
+import { useGlobalGraph } from "../../lib/hooks/useGlobalGraph";
+import { useSelectionMode } from "../../lib/hooks/useSelectionMode";
+import { useQuickSwitch } from "../../lib/hooks/useQuickSwitch";
+import { QuickCaptureModal, type QuickCaptureResult } from "./QuickCaptureModal";
+import { FileDropZone } from "./FileDropZone";
 
 const SELECTED_NOTE_STORAGE_KEY = "neuronote.workspace.selected";
 const RECENT_NOTES_STORAGE_KEY = "neuronote.workspace.recent";
@@ -95,23 +95,6 @@ function sortWorkspaceNotes(items: NoteSummary[]): NoteSummary[] {
 
 function pickFallbackSelection(items: NoteSummary[]): string | null {
   return sortWorkspaceNotes(items)[0]?.note_id ?? null;
-}
-
-function makeNewNoteId(): string {
-  return `note-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
-}
-
-function clampIndex(index: number, size: number): number {
-  if (size <= 0) {
-    return 0;
-  }
-  if (index < 0) {
-    return size - 1;
-  }
-  if (index >= size) {
-    return 0;
-  }
-  return index;
 }
 
 function loadRecentNotes(): string[] {
@@ -228,39 +211,23 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
   const [isCreatingNote, setIsCreatingNote] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [contextMenu, setContextMenu] = useState<NoteContextMenuState | null>(null);
-  const [quickSwitchOpen, setQuickSwitchOpen] = useState(false);
-  const [quickSwitchQuery, setQuickSwitchQuery] = useState("");
-  const [quickSwitchSelectedIndex, setQuickSwitchSelectedIndex] = useState(0);
-  const [backlinksOpen, setBacklinksOpen] = useState(false);
-  const [backlinkItems, setBacklinkItems] = useState<BacklinkItem[]>([]);
-  const [backlinksLoading, setBacklinksLoading] = useState(false);
-  const [backlinksErrorMessage, setBacklinksErrorMessage] = useState<string | null>(null);
-  const [globalGraph, setGlobalGraph] = useState<GlobalGraphResponse | null>(null);
-  const [globalGraphLoading, setGlobalGraphLoading] = useState(false);
-  const [globalGraphErrorMessage, setGlobalGraphErrorMessage] = useState<string | null>(null);
-  const [globalGraphFilters, setGlobalGraphFilters] = useState({
-    min_confidence: 0.0,
-    include_types: ["note", "entity", "relation"],
-  });
   const [appView, setAppView] = useState<"notes" | "graph">("notes");
-  const globalGraphRequestTokenRef = useRef(0);
   const [renameModalOpen, setRenameModalOpen] = useState(false);
   const [noteToRename, setNoteToRename] = useState<NoteSummary | null>(null);
   const [deleteDialogOpen, setDeleteDialogOpen] = useState(false);
   const [noteToDelete, setNoteToDelete] = useState<NoteSummary | null>(null);
   const [shortcutsModalOpen, setShortcutsModalOpen] = useState(false);
   const [templateGalleryOpen, setTemplateGalleryOpen] = useState(false);
-  const [selectionMode, setSelectionMode] = useState(false);
-  const [selectedNoteIds, setSelectedNoteIds] = useState<Set<string>>(new Set());
-  const [bulkDeleteDialogOpen, setBulkDeleteDialogOpen] = useState(false);
-  const [bulkTagDialogOpen, setBulkTagDialogOpen] = useState(false);
-  const [bulkSubjectDialogOpen, setBulkSubjectDialogOpen] = useState(false);
+  const [quickCaptureOpen, setQuickCaptureOpen] = useState(false);
   const createInFlightRef = useRef(false);
   const contextMenuRef = useRef<HTMLUListElement | null>(null);
-  const quickSwitchInputRef = useRef<HTMLInputElement | null>(null);
-  const backlinksTriggerRef = useRef<HTMLButtonElement | null>(null);
-  const backlinkRequestTokenRef = useRef(0);
   const filtersInitializedRef = useRef(false);
+
+  // ── Extracted hooks ──
+  const qs = useQuickSwitch(notes, selectedNoteId);
+  const backlinks = useBacklinks(baseUrl);
+  const globalGraph = useGlobalGraph(baseUrl);
+  const selection = useSelectionMode();
 
   const filters: WorkspaceFilters = useMemo(
     () => ({
@@ -293,103 +260,6 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
   const closeContextMenu = useCallback(() => {
     setContextMenu(null);
   }, []);
-
-  const toggleNoteSelection = useCallback((noteId: string) => {
-    setSelectedNoteIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(noteId)) {
-        next.delete(noteId);
-      } else {
-        next.add(noteId);
-      }
-      return next;
-    });
-  }, []);
-
-  const clearSelection = useCallback(() => {
-    setSelectedNoteIds(new Set());
-    setSelectionMode(false);
-  }, []);
-
-  const selectAll = useCallback(() => {
-    setSelectedNoteIds(new Set(notes.map((n) => n.note_id)));
-  }, [notes]);
-
-  const closeQuickSwitch = useCallback(() => {
-    setQuickSwitchOpen(false);
-    setQuickSwitchQuery("");
-    setQuickSwitchSelectedIndex(0);
-  }, []);
-
-  const closeBacklinksModal = useCallback(() => {
-    setBacklinksOpen(false);
-    setBacklinksLoading(false);
-    setBacklinksErrorMessage(null);
-    backlinkRequestTokenRef.current += 1;
-    window.setTimeout(() => {
-      backlinksTriggerRef.current?.focus();
-    }, 0);
-  }, []);
-
-  const loadGlobalGraph = useCallback(async () => {
-    const token = globalGraphRequestTokenRef.current + 1;
-    globalGraphRequestTokenRef.current = token;
-    setGlobalGraphLoading(true);
-    setGlobalGraphErrorMessage(null);
-    try {
-      const response = await fetchGlobalGraph(baseUrl, globalGraphFilters);
-      if (globalGraphRequestTokenRef.current !== token) {
-        return;
-      }
-      setGlobalGraph(response);
-    } catch {
-      if (globalGraphRequestTokenRef.current !== token) {
-        return;
-      }
-      setGlobalGraph(null);
-      setGlobalGraphErrorMessage("Failed to load global graph");
-    } finally {
-      if (globalGraphRequestTokenRef.current === token) {
-        setGlobalGraphLoading(false);
-      }
-    }
-  }, [baseUrl, globalGraphFilters]);
-
-  const loadBacklinks = useCallback(
-    async (noteId: string) => {
-      const token = backlinkRequestTokenRef.current + 1;
-      backlinkRequestTokenRef.current = token;
-      setBacklinksLoading(true);
-      setBacklinksErrorMessage(null);
-      try {
-        const response = await fetchNoteBacklinks(baseUrl, noteId);
-        if (backlinkRequestTokenRef.current !== token) {
-          return;
-        }
-        setBacklinkItems(response.items);
-      } catch {
-        if (backlinkRequestTokenRef.current !== token) {
-          return;
-        }
-        setBacklinkItems([]);
-        setBacklinksErrorMessage("Failed to load linked mentions");
-      } finally {
-        if (backlinkRequestTokenRef.current === token) {
-          setBacklinksLoading(false);
-        }
-      }
-    },
-    [baseUrl],
-  );
-
-  const openBacklinksModal = useCallback(() => {
-    if (!selectedNoteId) {
-      return;
-    }
-    setBacklinksOpen(true);
-    setBacklinkItems([]);
-    void loadBacklinks(selectedNoteId);
-  }, [loadBacklinks, selectedNoteId]);
 
   const openContextMenu = useCallback(
     (noteId: string, x: number, y: number) => {
@@ -474,9 +344,9 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
 
   useEffect(() => {
     if (appView === "graph") {
-      void loadGlobalGraph();
+      void globalGraph.load();
     }
-  }, [appView, loadGlobalGraph]);
+  }, [appView, globalGraph.load]);
 
   useEffect(() => {
     if (selectedNoteId && notes.some((note) => note.note_id === selectedNoteId)) {
@@ -530,35 +400,19 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
     () => (contextMenu ? notes.find((item) => item.note_id === contextMenu.noteId) ?? null : null),
     [contextMenu, notes],
   );
-  const quickSwitchItems = useMemo(
-    () => buildQuickSwitchItems({ notes, selectedNoteId }),
-    [notes, selectedNoteId],
-  );
-  const filteredQuickSwitchItems = useMemo(
-    () => filterQuickSwitchItems({ items: quickSwitchItems, query: quickSwitchQuery }),
-    [quickSwitchItems, quickSwitchQuery],
-  );
-
-  useEffect(() => {
-    if (!quickSwitchOpen) {
-      return;
-    }
-    quickSwitchInputRef.current?.focus();
-  }, [quickSwitchOpen]);
-
-  useEffect(() => {
-    setQuickSwitchSelectedIndex((current) => clampIndex(current, filteredQuickSwitchItems.length));
-  }, [filteredQuickSwitchItems.length]);
-
   useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
       const isQuickSwitchShortcut = (event.metaKey || event.ctrlKey) && event.key.toLowerCase() === "k";
       if (isQuickSwitchShortcut) {
         event.preventDefault();
         closeContextMenu();
-        setQuickSwitchOpen(true);
-        setQuickSwitchQuery("");
-        setQuickSwitchSelectedIndex(0);
+        qs.open();
+        return;
+      }
+      const isQuickCaptureShortcut = (event.metaKey || event.ctrlKey) && event.shiftKey && event.key.toLowerCase() === "n";
+      if (isQuickCaptureShortcut) {
+        event.preventDefault();
+        setQuickCaptureOpen(true);
         return;
       }
       if (event.key === "?" && !event.metaKey && !event.ctrlKey && !event.altKey) {
@@ -569,16 +423,16 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
           return;
         }
       }
-      if (!quickSwitchOpen) {
-        if (backlinksOpen && event.key === "Escape") {
+      if (!qs.isOpen) {
+        if (backlinks.isOpen && event.key === "Escape") {
           event.preventDefault();
-          closeBacklinksModal();
+          backlinks.close();
         }
         return;
       }
       if (event.key === "Escape") {
         event.preventDefault();
-        closeQuickSwitch();
+        qs.close();
       }
     };
 
@@ -586,7 +440,7 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
     return () => {
       window.removeEventListener("keydown", handleKeyDown);
     };
-  }, [backlinksOpen, closeBacklinksModal, closeContextMenu, closeQuickSwitch, quickSwitchOpen]);
+  }, [backlinks.isOpen, backlinks.close, closeContextMenu, qs.isOpen, qs.open, qs.close]);
 
   const handleMetadataSaved = useCallback(
     async (payload: WorkspaceMetadataSavedPayload) => {
@@ -679,6 +533,47 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
       }
     },
     [baseUrl, refreshNotes, handleCreateNote],
+  );
+
+  const handleQuickCaptureSave = useCallback(
+    async (result: QuickCaptureResult) => {
+      const newNoteId = makeNewNoteId();
+      const paragraphs = result.body
+        ? result.body.split("\n").map((line) => ({
+            type: "paragraph" as const,
+            content: line ? [{ type: "text" as const, text: line }] : [],
+          }))
+        : [];
+      try {
+        const created = await saveNote(baseUrl, {
+          note_id: newNoteId,
+          note_title: result.title,
+          subject_id: "inbox",
+          tags: [],
+          is_pinned: false,
+          is_archived: false,
+          content_json: { type: "doc", content: paragraphs },
+          content_text: result.body || " ",
+          updated_at: new Date().toISOString(),
+        });
+        await refreshNotes(created.note_id);
+      } catch {
+        setErrorMessage("Failed to create note from quick capture");
+      }
+    },
+    [baseUrl, refreshNotes],
+  );
+
+  const handleFileImport = useCallback(
+    async (filename: string, content: string) => {
+      try {
+        const result = await importNote(baseUrl, { filename, content });
+        await refreshNotes(result.note_id);
+      } catch {
+        setErrorMessage("Failed to import file");
+      }
+    },
+    [baseUrl, refreshNotes],
   );
 
   const handleRenameNote = useCallback(
@@ -792,21 +687,21 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
   );
 
   const handleBulkDelete = useCallback(async () => {
-    if (selectedNoteIds.size === 0) return;
-    for (const noteId of selectedNoteIds) {
+    if (selection.selectedNoteIds.size === 0) return;
+    for (const noteId of selection.selectedNoteIds) {
       try {
         await deleteNote(baseUrl, noteId);
       } catch {
         // continue deleting others even if one fails
       }
     }
-    clearSelection();
+    selection.clearSelection();
     void refreshNotes(selectedNoteId);
-  }, [baseUrl, clearSelection, refreshNotes, selectedNoteId, selectedNoteIds]);
+  }, [baseUrl, selection.clearSelection, refreshNotes, selectedNoteId, selection.selectedNoteIds]);
 
   const handleBulkTag = useCallback(async (tagValue: string) => {
-    if (selectedNoteIds.size === 0) return;
-    for (const noteId of selectedNoteIds) {
+    if (selection.selectedNoteIds.size === 0) return;
+    for (const noteId of selection.selectedNoteIds) {
       try {
         const existing = await getNote(baseUrl, noteId);
         const updatedTags = Array.from(new Set([...existing.tags, tagValue.trim().toLowerCase()]));
@@ -825,13 +720,13 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
         // continue
       }
     }
-    clearSelection();
+    selection.clearSelection();
     void refreshNotes(selectedNoteId);
-  }, [baseUrl, clearSelection, refreshNotes, selectedNoteId, selectedNoteIds]);
+  }, [baseUrl, selection.clearSelection, refreshNotes, selectedNoteId, selection.selectedNoteIds]);
 
   const handleBulkSubject = useCallback(async (subjectValue: string) => {
-    if (selectedNoteIds.size === 0) return;
-    for (const noteId of selectedNoteIds) {
+    if (selection.selectedNoteIds.size === 0) return;
+    for (const noteId of selection.selectedNoteIds) {
       try {
         const existing = await getNote(baseUrl, noteId);
         await saveNote(baseUrl, {
@@ -849,9 +744,9 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
         // continue
       }
     }
-    clearSelection();
+    selection.clearSelection();
     void refreshNotes(selectedNoteId);
-  }, [baseUrl, clearSelection, refreshNotes, selectedNoteId, selectedNoteIds]);
+  }, [baseUrl, selection.clearSelection, refreshNotes, selectedNoteId, selection.selectedNoteIds]);
 
   const handleTogglePinnedNote = useCallback(
     async (noteId: string) => {
@@ -958,7 +853,7 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
 
   const executeQuickSwitchItem = useCallback(
     async (item: QuickSwitchItem) => {
-      closeQuickSwitch();
+      qs.close();
       if (item.actionId === "open_note") {
         if (!item.noteId) {
           return;
@@ -985,7 +880,7 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
         return;
       }
       if (item.actionId === "show_backlinks") {
-        openBacklinksModal();
+        selectedNoteId && backlinks.open(selectedNoteId);
         return;
       }
       if (item.actionId === "view_global_graph") {
@@ -993,11 +888,11 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
       }
     },
     [
-      closeQuickSwitch,
+      qs.close,
       handleCreateNote,
       handleToggleArchivedNote,
       handleTogglePinnedNote,
-      openBacklinksModal,
+      backlinks,
       selectedNoteId,
       setAppView,
     ],
@@ -1007,17 +902,17 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
     (event: ReactKeyboardEvent<HTMLInputElement>) => {
       if (event.key === "ArrowDown") {
         event.preventDefault();
-        setQuickSwitchSelectedIndex((current) => clampIndex(current + 1, filteredQuickSwitchItems.length));
+        qs.moveSelection(1);
         return;
       }
       if (event.key === "ArrowUp") {
         event.preventDefault();
-        setQuickSwitchSelectedIndex((current) => clampIndex(current - 1, filteredQuickSwitchItems.length));
+        qs.moveSelection(-1);
         return;
       }
       if (event.key === "Enter") {
         event.preventDefault();
-        const target = filteredQuickSwitchItems[quickSwitchSelectedIndex] ?? filteredQuickSwitchItems[0];
+        const target = qs.filteredItems[qs.selectedIndex] ?? qs.filteredItems[0];
         if (target) {
           void executeQuickSwitchItem(target);
         }
@@ -1025,10 +920,10 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
       }
       if (event.key === "Escape") {
         event.preventDefault();
-        closeQuickSwitch();
+        qs.close();
       }
     },
-    [closeQuickSwitch, executeQuickSwitchItem, filteredQuickSwitchItems, quickSwitchSelectedIndex],
+    [qs.close, executeQuickSwitchItem, qs.filteredItems, qs.selectedIndex],
   );
 
   const handleListKeyDown = useCallback(
@@ -1157,12 +1052,12 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
       {appView === "graph" ? (
         <GlobalGraphPanel
           baseUrl={baseUrl}
-          graph={globalGraph}
-          filters={globalGraphFilters}
-          isLoading={globalGraphLoading}
-          errorMessage={globalGraphErrorMessage}
-          onRetry={() => { void loadGlobalGraph(); }}
-          onFiltersChange={(next) => { setGlobalGraphFilters(next); }}
+          graph={globalGraph.graph}
+          filters={globalGraph.filters}
+          isLoading={globalGraph.isLoading}
+          errorMessage={globalGraph.errorMessage}
+          onRetry={() => { void globalGraph.load(); }}
+          onFiltersChange={(next) => { globalGraph.setFilters(next); }}
           onOpenNote={(nextNoteId) => {
             if (!notes.some((item) => item.note_id === nextNoteId)) return;
             setAppView("notes");
@@ -1171,6 +1066,7 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
           }}
         />
       ) : (
+      <FileDropZone onFileContent={(name, content) => void handleFileImport(name, content)}>
       <section className="notes-workspace" data-testid="notes-workspace">
       <aside className="notes-sidebar">
         <header className="notes-sidebar-header">
@@ -1178,16 +1074,16 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
           <div className="notes-sidebar-actions">
             <button
               type="button"
-              className={`editor-command-button${selectionMode ? " active" : ""}`}
+              className={`editor-command-button${selection.selectionMode ? " active" : ""}`}
               onClick={() => {
-                if (selectionMode) {
-                  clearSelection();
+                if (selection.selectionMode) {
+                  selection.clearSelection();
                 } else {
-                  setSelectionMode(true);
+                  selection.setSelectionMode(true);
                 }
               }}
             >
-              {selectionMode ? "Cancel" : "Select"}
+              {selection.selectionMode ? "Cancel" : "Select"}
             </button>
             <NewNoteButton
               disabled={isCreatingNote}
@@ -1197,14 +1093,14 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
           </div>
         </header>
 
-        {selectionMode && (
+        {selection.selectionMode && (
           <div className="bulk-actions-bar">
-            <span className="bulk-actions-count">{selectedNoteIds.size} selected</span>
+            <span className="bulk-actions-count">{selection.selectedNoteIds.size} selected</span>
             <div className="bulk-actions-buttons">
-              <button type="button" className="btn btn-sm btn-ghost" onClick={selectAll}>All</button>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setBulkTagDialogOpen(true)} disabled={selectedNoteIds.size === 0}>Tag</button>
-              <button type="button" className="btn btn-sm btn-ghost" onClick={() => setBulkSubjectDialogOpen(true)} disabled={selectedNoteIds.size === 0}>Subject</button>
-              <button type="button" className="btn btn-sm btn-danger" onClick={() => setBulkDeleteDialogOpen(true)} disabled={selectedNoteIds.size === 0}>Delete</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => selection.selectAll(notes.map((n) => n.note_id))}>All</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => selection.setBulkTagDialogOpen(true)} disabled={selection.selectedNoteIds.size === 0}>Tag</button>
+              <button type="button" className="btn btn-sm btn-ghost" onClick={() => selection.setBulkSubjectDialogOpen(true)} disabled={selection.selectedNoteIds.size === 0}>Subject</button>
+              <button type="button" className="btn btn-sm btn-danger" onClick={() => selection.setBulkDeleteDialogOpen(true)} disabled={selection.selectedNoteIds.size === 0}>Delete</button>
             </div>
           </div>
         )}
@@ -1294,12 +1190,12 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
             <ul className="notes-list">
               {pinnedNotes.map((note) => (
                 <li key={`pinned-${note.note_id}`}>
-                  {selectionMode && (
+                  {selection.selectionMode && (
                     <label className="note-select-checkbox">
                       <input
                         type="checkbox"
-                        checked={selectedNoteIds.has(note.note_id)}
-                        onChange={() => toggleNoteSelection(note.note_id)}
+                        checked={selection.selectedNoteIds.has(note.note_id)}
+                        onChange={() => selection.toggleSelection(note.note_id)}
                         aria-label={`Select ${note.note_title}`}
                       />
                     </label>
@@ -1329,12 +1225,12 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
                 role="option"
                 aria-selected={note.note_id === selectedNoteId}
               >
-                {selectionMode && (
+                {selection.selectionMode && (
                   <label className="note-select-checkbox">
                     <input
                       type="checkbox"
-                      checked={selectedNoteIds.has(note.note_id)}
-                      onChange={() => toggleNoteSelection(note.note_id)}
+                      checked={selection.selectedNoteIds.has(note.note_id)}
+                      onChange={() => selection.toggleSelection(note.note_id)}
                       aria-label={`Select ${note.note_title}`}
                     />
                   </label>
@@ -1372,8 +1268,8 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
           <button
             type="button"
             className="editor-command-button"
-            ref={backlinksTriggerRef}
-            onClick={openBacklinksModal}
+            ref={backlinks.triggerRef as React.RefObject<HTMLButtonElement>}
+            onClick={() => selectedNoteId && backlinks.open(selectedNoteId)}
             disabled={!selectedNoteId}
           >
             Linked mentions
@@ -1404,34 +1300,35 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
       </main>
 
       </section>
+      </FileDropZone>
       )}
 
       <BacklinksModal
-        isOpen={backlinksOpen}
+        isOpen={backlinks.isOpen}
         noteTitle={notes.find((item) => item.note_id === selectedNoteId)?.note_title ?? "Untitled"}
-        items={backlinkItems}
-        isLoading={backlinksLoading}
-        errorMessage={backlinksErrorMessage}
-        onClose={closeBacklinksModal}
+        items={backlinks.items}
+        isLoading={backlinks.isLoading}
+        errorMessage={backlinks.errorMessage}
+        onClose={backlinks.close}
         onRetry={() => {
           if (selectedNoteId) {
-            void loadBacklinks(selectedNoteId);
+            backlinks.open(selectedNoteId);
           }
         }}
         onOpenSource={(noteId) => {
-          closeBacklinksModal();
+          backlinks.close();
           setSelectedNoteId(noteId);
           setHighlightedNoteId(noteId);
         }}
       />
 
-      {quickSwitchOpen ? (
+      {qs.isOpen ? (
         <div
           className="quick-switch-overlay"
           role="presentation"
           onMouseDown={(event) => {
             if (event.target === event.currentTarget) {
-              closeQuickSwitch();
+              qs.close();
             }
           }}
         >
@@ -1449,29 +1346,29 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
             </label>
             <input
               id="quick-switch-input"
-              ref={quickSwitchInputRef}
+              ref={qs.inputRef as React.RefObject<HTMLInputElement>}
               className="quick-switch-input"
               aria-label="Quick switch"
               type="text"
-              value={quickSwitchQuery}
+              value={qs.query}
               onChange={(event) => {
-                setQuickSwitchQuery(event.target.value);
-                setQuickSwitchSelectedIndex(0);
+                qs.setQuery(event.target.value);
+                qs.setSelectedIndex(0);
               }}
               onKeyDown={handleQuickSwitchKeyDown}
               placeholder="Search notes and actions"
             />
 
             <ul className="quick-switch-results" role="listbox" aria-label="Quick switch results">
-              {filteredQuickSwitchItems.map((item, index) => (
+              {qs.filteredItems.map((item, index) => (
                 <li key={item.id}>
                   <button
                     type="button"
                     role="option"
-                    aria-selected={index === quickSwitchSelectedIndex}
-                    className={`quick-switch-item${index === quickSwitchSelectedIndex ? " selected" : ""}`}
+                    aria-selected={index === qs.selectedIndex}
+                    className={`quick-switch-item${index === qs.selectedIndex ? " selected" : ""}`}
                     onMouseEnter={() => {
-                      setQuickSwitchSelectedIndex(index);
+                      qs.setSelectedIndex(index);
                     }}
                     onMouseDown={(event) => {
                       event.preventDefault();
@@ -1484,7 +1381,7 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
                 </li>
               ))}
             </ul>
-            {filteredQuickSwitchItems.length === 0 ? (
+            {qs.filteredItems.length === 0 ? (
               <p className="quick-switch-empty">No matches found.</p>
             ) : null}
           </div>
@@ -1552,34 +1449,34 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
       />
 
       <ConfirmDialog
-        isOpen={bulkDeleteDialogOpen}
+        isOpen={selection.bulkDeleteDialogOpen}
         title="Delete notes"
-        message={`Delete ${selectedNoteIds.size} note${selectedNoteIds.size === 1 ? "" : "s"}? This cannot be undone.`}
+        message={`Delete ${selection.selectedNoteIds.size} note${selection.selectedNoteIds.size === 1 ? "" : "s"}? This cannot be undone.`}
         confirmLabel="Delete"
         variant="danger"
         onConfirm={() => {
           void handleBulkDelete();
         }}
-        onClose={() => setBulkDeleteDialogOpen(false)}
+        onClose={() => selection.setBulkDeleteDialogOpen(false)}
       />
 
       <InputModal
-        isOpen={bulkTagDialogOpen}
+        isOpen={selection.bulkTagDialogOpen}
         title="Add tag to selected notes"
         label="Tag"
         placeholder="e.g. ml"
-        onClose={() => setBulkTagDialogOpen(false)}
+        onClose={() => selection.setBulkTagDialogOpen(false)}
         onSubmit={(value) => {
           void handleBulkTag(value);
         }}
       />
 
       <InputModal
-        isOpen={bulkSubjectDialogOpen}
+        isOpen={selection.bulkSubjectDialogOpen}
         title="Change subject for selected notes"
         label="Subject"
         placeholder="e.g. inbox"
-        onClose={() => setBulkSubjectDialogOpen(false)}
+        onClose={() => selection.setBulkSubjectDialogOpen(false)}
         onSubmit={(value) => {
           void handleBulkSubject(value);
         }}
@@ -1591,6 +1488,11 @@ export function NotesWorkspace({ baseUrl, initialNoteId }: NotesWorkspaceProps) 
           setTemplateGalleryOpen(false);
           void handleCreateNoteFromTemplate(template);
         }}
+      />
+      <QuickCaptureModal
+        isOpen={quickCaptureOpen}
+        onClose={() => setQuickCaptureOpen(false)}
+        onSave={(result) => void handleQuickCaptureSave(result)}
       />
       <HelpWidget />
     </div>

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { EditorToolbar } from "./EditorToolbar";
+import { ExtractionSummaryBadge } from "./ExtractionSummaryBadge";
 import { SubjectPicker } from "./SubjectPicker";
 import { TagPicker } from "./TagPicker";
 import { TipTapEditor, type TipTapUpdatePayload } from "./TipTapEditor";
@@ -31,6 +32,8 @@ import { createNoteLifecycleController } from "../../lib/orchestration/note-life
 import { createProcessPollingController } from "../../lib/orchestration/process-polling";
 import type { ProcessStatus, SaveStatus } from "../../lib/state/note-store";
 import type { BlockRefSuggestion, WikiLinkSuggestion } from "./TipTapEditor";
+import { makeNewNoteId } from "../../lib/utils/note-id";
+import type { ExtractionSummary } from "../../../../shared/contracts/ts/v1/process";
 
 interface NoteEditorProps {
   noteId: string;
@@ -79,10 +82,6 @@ function makeHash(content: string): string {
     hash = (hash * 31 + content.charCodeAt(i)) | 0;
   }
   return `h${Math.abs(hash)}`;
-}
-
-function makeGeneratedNoteId(): string {
-  return `note-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
 }
 
 function parseTagsInput(value: string): string[] {
@@ -245,6 +244,7 @@ export function NoteEditor({
   const [dirty, setDirty] = useState(false);
   const [saveStatus, setSaveStatus] = useState<SaveStatus>("idle");
   const [processStatus, setProcessStatus] = useState<ProcessStatus>("idle");
+  const [extractionSummary, setExtractionSummary] = useState<ExtractionSummary | null>(null);
   const [editorError, setEditorError] = useState<string | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [updatedAt, setUpdatedAt] = useState(new Date().toISOString());
@@ -445,16 +445,19 @@ export function NoteEditor({
         fetchStatus: async () => {
           const jobId = activeJobIdRef.current;
           if (!jobId) {
-            return { status: "failed" as const };
+            return { job_id: "", status: "failed" as const, created_at: "", updated_at: "" };
           }
           const result = await fetchProcessingStatus(baseUrl, jobId);
           if (result.status === "failed" && result.error) {
             console.error("[NeuroNote] Processing failed:", result.error);
           }
-          return { status: result.status };
+          return result;
         },
-        onStatus: (status) => {
-          setProcessStatus(status);
+        onStatus: (response) => {
+          setProcessStatus(response.status);
+          if (response.status === "completed" && response.extraction_summary) {
+            setExtractionSummary(response.extraction_summary);
+          }
         },
       });
       pollingRef.current.start();
@@ -569,7 +572,7 @@ export function NoteEditor({
   const createWikiLinkNote = useCallback(
     async (title: string): Promise<WikiLinkSuggestion> => {
       const nextTitle = title.trim() || "Untitled";
-      const noteId = makeGeneratedNoteId();
+      const noteId = makeNewNoteId();
       await saveNote(baseUrl, {
         note_id: noteId,
         note_title: nextTitle,
@@ -663,6 +666,7 @@ export function NoteEditor({
       <div className="note-editor-top-bar">
         <div className="note-editor-status-row">
           <EditorToolbar dirty={dirty} saveStatus={saveStatus} processStatus={processStatus} />
+          <ExtractionSummaryBadge summary={extractionSummary} />
           <NoteOptionsMenu
             subjectId={subjectId}
             onSubjectChange={handleSubjectChange}

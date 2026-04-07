@@ -16,6 +16,7 @@ const SHORTCUTS: ShortcutSection[] = [
     shortcuts: [
       { keys: ["?"], description: "Show keyboard shortcuts" },
       { keys: ["Ctrl", "K"], description: "Quick switch notes" },
+      { keys: ["Ctrl", "Shift", "N"], description: "Quick capture" },
       { keys: ["Escape"], description: "Close dialog / cancel" },
     ],
   },

@@ -1,5 +1,24 @@
 # NeuroNote — Claude Code Context
 
+## Rules when working in this database 
+1. You are a senior software engineer
+2. This project uses `uv` and a uv virtual environment for this environment.
+3. Come up with a plan for the desired task using SOLID principles and high trust online resoruces that have tackled a similar problem, document that plan in a temporary file.
+4. Always create the project structure first, then write test cases for all viable scenarios, and only then implement the logic. Document everything in that temporary file.
+5. Always run tests against the written test cases after implementation.
+6. Always write neat slop-free/minimal but descriptive comments and docs for everything we do.
+7. After any code changes always scan for deadcode and do cleanup
+8. Make sure what we implemented aligns with the plan.
+9. Update codebase relevant documentation.
+10. Delete temporary file
+11. For bugs always prioritise permanent fixes and NOT quick fixes, Use high trust online resources
+12. For UI/UX work, define explicit acceptance criteria in the temp plan (interaction, loading, error, keyboard,
+  accessibility).
+13. For frontend behavior changes, write/adjust tests first for all user-visible scenarios, then implement.
+14. Every destructive action must have both mouse and keyboard access parity.
+15. Use a consistent visual system (tokens/variables, spacing scale, typography scale); avoid ad-hoc styling..
+16. Epic completion requires passing every gate in `docs/release_checklist.md` (no skipped gates).
+
 ## What this project is
 
 NeuroNote is a local-first AI-powered knowledge base. Users write notes in a rich TipTap editor; the system automatically extracts concepts and relations with an NLP pipeline (rule-based, spaCy, or Claude-enhanced), stores them in an Apache AGE property graph, and lets users explore the knowledge graph interactively. Clicking any concept node opens an AI-generated insight panel grounded in the user's own notes.
@@ -107,6 +126,39 @@ All new CSS must use tokens, not hardcoded values:
 - Colors: `var(--text-strong)`, `var(--accent)`, `var(--panel-bg)`, `var(--danger)`, etc.
 - Font sizes: `var(--text-xs)` (0.75rem), `var(--text-sm)` (0.8rem), `var(--text-base)` (0.875rem)
 - Z-indices: `var(--z-dropdown)`, `var(--z-modal)`, `var(--z-toast)`
+- Graph: `var(--graph-node-note)`, `var(--graph-node-entity)`, `var(--graph-node-highlight)`, `var(--graph-edge-dim)`, `var(--graph-node-dim-opacity)`
+
+### Shared backend utilities (`api/src/app/utils/text.py`)
+Text normalisation functions are centralised here. Do NOT duplicate these in services:
+- `normalize_title(value)` — collapse whitespace, strip
+- `normalize_title_key(value)` — normalize + lowercase (for case-insensitive comparison)
+- `extract_wiki_link_titles(content_text)` — deduplicated, normalised `[[Title]]` targets
+- `normalize_entity_key(value)` — slugify to `a-z0-9-` key
+- `normalize_include_types(values)` — validate graph include_types with defaults
+
+### Shared frontend hooks (`web/src/lib/hooks/`)
+Complex state slices extracted from `NotesWorkspace` into composable hooks:
+- `useQuickSwitch(notes, selectedNoteId)` — quick-switch modal state + keyboard nav
+- `useBacklinks(baseUrl)` — backlinks modal state + fetch logic
+- `useGlobalGraph(baseUrl)` — global graph state + filters + fetch logic
+- `useSelectionMode()` — multi-select state + bulk dialog toggles
+
+### Graph constants (`web/src/components/graph/graph-constants.ts`)
+All D3 graph rendering magic numbers (forces, sizes, animation timing) are defined here. D3GraphCanvas reads colors from CSS custom properties at render time.
+
+### File import (`api/src/app/import_/`)
+- `markdown_parser.py` — line-by-line regex parser that converts markdown/text to TipTap JSON
+- Route: `POST /v1/notes/import` accepts `ImportNoteRequest` (filename + content), auto-queues NLP processing
+- Frontend: `FileDropZone` component wraps workspace with drag-drop overlay for `.md`/`.txt`
+
+### Extraction feedback
+- `ProcessStatusResponse.extraction_summary` — JSONB column on `processing_jobs` table (migration 0013)
+- `ExtractionSummaryBadge` component in editor toolbar shows entity/relation/keyphrase counts after processing
+- `process-polling.ts` callbacks receive full `ProcessStatusResponse` (not just status string)
+
+### Repository separation
+- `GraphRepository` — AGE/Cypher graph operations only
+- `EmbeddingRepository` — pgvector embedding upsert + nearest-neighbor search (split from GraphRepository for ISP)
 
 ## Test suite
 

@@ -27,7 +27,7 @@ _LOG = logging.getLogger(__name__)
 def _run_processing_job(*, job_id: str, payload: ProcessNoteRequest) -> None:
     mark_job_running(job_id)
     try:
-        NoteProcessingService().process_note(payload)
+        summary = NoteProcessingService().process_note(payload)
     except NoteNotFoundError as exc:
         mark_job_failed(job_id, error=str(exc))
         return
@@ -36,7 +36,7 @@ def _run_processing_job(*, job_id: str, payload: ProcessNoteRequest) -> None:
         mark_job_failed(job_id, error=str(exc))
         return
 
-    mark_job_completed(job_id)
+    mark_job_completed(job_id, extraction_summary=summary.model_dump() if summary else None)
 
 
 @router.post(

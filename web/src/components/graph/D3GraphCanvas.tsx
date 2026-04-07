@@ -4,6 +4,13 @@ import { useEffect, useRef } from "react";
 import * as d3 from "d3";
 
 import type { LocalGraphNode, LocalGraphEdge } from "../../../../shared/contracts/ts/v1/graph";
+import {
+  GRAPH_FORCES,
+  GRAPH_SIZES,
+  GRAPH_ANIMATION,
+  GRAPH_THRESHOLDS,
+  GRAPH_CSS_VARS,
+} from "./graph-constants";
 
 interface D3GraphCanvasProps {
   nodes: LocalGraphNode[];
@@ -16,17 +23,44 @@ interface D3GraphCanvasProps {
   ariaLabel?: string;
 }
 
-const MAX_RENDER_NODES = 300;
-
 type SimNode = LocalGraphNode & d3.SimulationNodeDatum;
 
 type SimEdge = Omit<LocalGraphEdge, "source" | "target"> &
   d3.SimulationLinkDatum<SimNode>;
 
-function pickNodeColor(type: string): string {
-  if (type === "note") return "#1d6d4f";
-  if (type === "entity") return "#4568a6";
-  return "#6c6f75";
+/** Read a CSS custom property from :root, falling back to a default. */
+function getCssVar(name: string, fallback: string): string {
+  if (typeof document === "undefined") return fallback;
+  return getComputedStyle(document.documentElement).getPropertyValue(name).trim() || fallback;
+}
+
+/** Build a color function that reads from tokens at render time. */
+function makeNodeColorFn(): (type: string, subjectId?: string) => string {
+  const noteColor = getCssVar(GRAPH_CSS_VARS.nodeNote, "#1d6d4f");
+  const entityColor = getCssVar(GRAPH_CSS_VARS.nodeEntity, "#4568a6");
+  const otherColor = getCssVar(GRAPH_CSS_VARS.nodeOther, "#6c6f75");
+  const subjectScale = d3.scaleOrdinal(d3.schemeTableau10);
+
+  return (type: string, subjectId?: string) => {
+    if (type === "note" && subjectId) return subjectScale(subjectId);
+    if (type === "note") return noteColor;
+    if (type === "entity") return entityColor;
+    return otherColor;
+  };
+}
+
+/** Compute a quadratic bezier control point offset perpendicular to source→target. */
+function curvedPath(
+  sx: number, sy: number, tx: number, ty: number, offset: number,
+): string {
+  const mx = (sx + tx) / 2;
+  const my = (sy + ty) / 2;
+  const dx = tx - sx;
+  const dy = ty - sy;
+  const len = Math.sqrt(dx * dx + dy * dy) || 1;
+  const cx = mx - (dy / len) * offset;
+  const cy = my + (dx / len) * offset;
+  return `M${sx},${sy} Q${cx},${cy} ${tx},${ty}`;
 }
 
 export function D3GraphCanvas({
@@ -40,23 +74,19 @@ export function D3GraphCanvas({
   ariaLabel,
 }: D3GraphCanvasProps) {
   const svgRef = useRef<SVGSVGElement>(null);
-  // Stable refs so the pan-to-highlight effect can access current sim state
   const zoomRef = useRef<d3.ZoomBehavior<SVGSVGElement, unknown> | null>(null);
   const simNodesRef = useRef<SimNode[]>([]);
 
-  // Main effect: rebuild simulation whenever nodes/edges/dimensions change
   useEffect(() => {
     if (!svgRef.current) return;
 
-    // Re-measure each time the effect runs — SVG is in the DOM by now
     const rect = svgRef.current.getBoundingClientRect();
     const width = widthProp ?? (rect.width > 0 ? rect.width : 800);
 
-    // Cap node count to avoid pegging the CPU on very large graphs.
-    // Retain the highest-connected nodes so the most relevant structure is visible.
+    // Cap node count — retain highest-connected nodes
     let renderNodes = nodes;
     let renderEdges = edges;
-    if (nodes.length > MAX_RENDER_NODES) {
+    if (nodes.length > GRAPH_SIZES.maxRenderNodes) {
       const edgeDegree = new Map<string, number>();
       for (const e of edges) {
         edgeDegree.set(e.source, (edgeDegree.get(e.source) ?? 0) + 1);
@@ -64,46 +94,73 @@ export function D3GraphCanvas({
       }
       renderNodes = [...nodes]
         .sort((a, b) => (edgeDegree.get(b.id) ?? 0) - (edgeDegree.get(a.id) ?? 0))
-        .slice(0, MAX_RENDER_NODES);
+        .slice(0, GRAPH_SIZES.maxRenderNodes);
       const visibleIds = new Set(renderNodes.map((n) => n.id));
       renderEdges = edges.filter((e) => visibleIds.has(e.source) && visibleIds.has(e.target));
     }
 
     const simNodes: SimNode[] = renderNodes.map((n) => ({ ...n }));
     const simEdges: SimEdge[] = renderEdges.map((e) => ({ ...e }));
-    simNodesRef.current = simNodes; // D3 mutates these in-place; ref stays current
+    simNodesRef.current = simNodes;
 
     const svg = d3.select(svgRef.current);
     svg.selectAll("*").remove();
 
     const g = svg.append("g").attr("class", "graph-root");
+    const getNodeColor = makeNodeColorFn();
+    const edgeColor = getCssVar(GRAPH_CSS_VARS.edge, "#8ba296");
+    const highlightColor = getCssVar(GRAPH_CSS_VARS.nodeHighlight, "#e07b1a");
+    const edgeDimColor = getCssVar(GRAPH_CSS_VARS.edgeDim, "rgba(139,162,150,0.15)");
+    const nodeDimOpacity = parseFloat(getCssVar(GRAPH_CSS_VARS.nodeDimOpacity, "0.2")) || 0.2;
 
+    // Build adjacency map for hover interaction
+    const adjacency = new Map<string, Set<string>>();
+    for (const e of simEdges) {
+      const sId = typeof e.source === "string" ? e.source : (e.source as SimNode).id;
+      const tId = typeof e.target === "string" ? e.target : (e.target as SimNode).id;
+      if (!adjacency.has(sId)) adjacency.set(sId, new Set());
+      if (!adjacency.has(tId)) adjacency.set(tId, new Set());
+      adjacency.get(sId)!.add(tId);
+      adjacency.get(tId)!.add(sId);
+    }
+
+    // ── Edges (curved paths) ──
     const linkSelection = g
-      .selectAll<SVGLineElement, SimEdge>("line")
+      .selectAll<SVGPathElement, SimEdge>("path.graph-edge")
       .data(simEdges)
       .enter()
-      .append("line")
-      .attr("stroke", "#8ba296")
+      .append("path")
+      .attr("class", "graph-edge")
+      .attr("fill", "none")
+      .attr("stroke", edgeColor)
       .attr("stroke-width", 1.5)
-      .attr("opacity", 0.7);
+      .attr("opacity", 0);
 
+    // ── Nodes ──
     const nodeSelection = g
       .selectAll<SVGGElement, SimNode>("g.node")
       .data(simNodes)
       .enter()
       .append("g")
       .attr("class", "node")
-      .style("cursor", "pointer");
+      .style("cursor", "pointer")
+      .attr("opacity", 0);
 
     nodeSelection.each(function (d) {
       const isRoot = rootNodeId === d.id;
       const isHighlight = highlightNodeId === d.id;
-      const radius = isHighlight ? 14 : isRoot ? 12 : 8;
+      const radius = isHighlight
+        ? GRAPH_SIZES.highlightRadius
+        : isRoot
+          ? GRAPH_SIZES.rootRadius
+          : GRAPH_SIZES.nodeRadius;
+      const subjectId = d.metadata?.subject_id as string | undefined;
+      const fillColor = isHighlight ? highlightColor : getNodeColor(d.type, subjectId);
 
       d3.select(this)
         .append("circle")
         .attr("r", radius)
-        .attr("fill", isHighlight ? "#e07b1a" : pickNodeColor(d.type))
+        .attr("fill", fillColor)
         .attr("stroke", isHighlight ? "#b85e10" : isRoot ? "#0f4e39" : "#fff")
         .attr("stroke-width", isHighlight ? 3 : isRoot ? 2 : 1);
 
@@ -115,35 +172,83 @@ export function D3GraphCanvas({
         .attr("font-weight", isHighlight ? "600" : "normal")
         .attr("fill", isHighlight ? "#7a3d0a" : "#6c6f75")
         .attr("pointer-events", "none")
-        .text(d.label.length > 24 ? d.label.slice(0, 24) : d.label);
+        .text(
+          d.label.length > GRAPH_SIZES.labelMaxChars
+            ? d.label.slice(0, GRAPH_SIZES.labelMaxChars)
+            : d.label,
+        );
     });
+
+    // ── Hover interaction ──
+    nodeSelection
+      .on("mouseenter", (_event, d) => {
+        const neighbors = adjacency.get(d.id) ?? new Set<string>();
+        nodeSelection.transition().duration(150).attr("opacity", (n) =>
+          n.id === d.id || neighbors.has(n.id) ? 1 : nodeDimOpacity,
+        );
+        linkSelection.transition().duration(150)
+          .attr("stroke", (e) => {
+            const sId = (e.source as SimNode).id;
+            const tId = (e.target as SimNode).id;
+            return sId === d.id || tId === d.id ? edgeColor : edgeDimColor;
+          })
+          .attr("opacity", (e) => {
+            const sId = (e.source as SimNode).id;
+            const tId = (e.target as SimNode).id;
+            return sId === d.id || tId === d.id ? 0.9 : 0.15;
+          });
+      })
+      .on("mouseleave", () => {
+        nodeSelection.transition().duration(150).attr("opacity", 1);
+        linkSelection.transition().duration(150)
+          .attr("stroke", edgeColor)
+          .attr("opacity", 0.7);
+      });
 
     nodeSelection.on("click", (_event, d) => {
       const original = nodes.find((n) => n.id === d.id);
       if (original) onNodeClick(original);
     });
 
-    // Cool the simulation faster when there are many nodes to avoid long CPU spikes.
-    // Default alphaDecay ≈ 0.0228 (~300 ticks); scale up for larger graphs.
-    const alphaDecay = simNodes.length > 150 ? 0.05 : 0.0228;
+    // ── Entrance animations ──
+    linkSelection
+      .transition()
+      .duration(GRAPH_ANIMATION.entranceDuration)
+      .delay((_d, i) => i * 2)
+      .attr("opacity", 0.7);
+
+    nodeSelection
+      .transition()
+      .duration(GRAPH_ANIMATION.entranceDuration)
+      .delay((_d, i) => i * 5)
+      .attr("opacity", 1);
+
+    // ── Force simulation ──
+    const alphaDecay =
+      simNodes.length > GRAPH_THRESHOLDS.largeGraphNodeCount
+        ? GRAPH_THRESHOLDS.fastAlphaDecay
+        : GRAPH_THRESHOLDS.defaultAlphaDecay;
 
     const simulation = d3
       .forceSimulation<SimNode>(simNodes)
       .alphaDecay(alphaDecay)
       .force(
         "link",
-        d3.forceLink<SimNode, SimEdge>(simEdges).id((d) => d.id).distance(90),
+        d3.forceLink<SimNode, SimEdge>(simEdges).id((d) => d.id).distance(GRAPH_FORCES.linkDistance),
       )
-      .force("charge", d3.forceManyBody<SimNode>().strength(-200))
+      .force("charge", d3.forceManyBody<SimNode>().strength(GRAPH_FORCES.chargeStrength))
       .force("center", d3.forceCenter(width / 2, height / 2))
-      .force("collide", d3.forceCollide<SimNode>(20));
+      .force("collide", d3.forceCollide<SimNode>(GRAPH_FORCES.collideRadius));
 
     simulation.on("tick", () => {
-      linkSelection
-        .attr("x1", (d) => (d.source as SimNode).x ?? 0)
-        .attr("y1", (d) => (d.source as SimNode).y ?? 0)
-        .attr("x2", (d) => (d.target as SimNode).x ?? 0)
-        .attr("y2", (d) => (d.target as SimNode).y ?? 0);
+      linkSelection.attr("d", (d) => {
+        const s = d.source as SimNode;
+        const t = d.target as SimNode;
+        return curvedPath(
+          s.x ?? 0, s.y ?? 0, t.x ?? 0, t.y ?? 0,
+          GRAPH_SIZES.curveOffset,
+        );
+      });
       nodeSelection.attr("transform", (d) => `translate(${d.x ?? 0},${d.y ?? 0})`);
     });
 
@@ -176,8 +281,7 @@ export function D3GraphCanvas({
     svg.call(zoom);
     zoomRef.current = zoom;
 
-    // After simulation settles, zoom to fit all nodes in view.
-    // Re-measure the SVG here so fitAll uses the actual rendered size.
+    // Zoom to fit after simulation settles
     const fitAll = () => {
       if (simNodes.length === 0) return;
       const r = svgRef.current?.getBoundingClientRect();
@@ -193,13 +297,16 @@ export function D3GraphCanvas({
         if (y < minY) minY = y;
         if (y > maxY) maxY = y;
       }
-      const PADDING = 48;
-      const boxW = maxX - minX + PADDING * 2;
-      const boxH = maxY - minY + PADDING * 2;
+      const pad = GRAPH_SIZES.fitPadding;
+      const boxW = maxX - minX + pad * 2;
+      const boxH = maxY - minY + pad * 2;
       const scale = Math.min(w / boxW, h / boxH, 1.5);
       const tx = w / 2 - scale * ((minX + maxX) / 2);
       const ty = h / 2 - scale * ((minY + maxY) / 2);
-      svg.transition().duration(300).call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
+      svg
+        .transition()
+        .duration(GRAPH_ANIMATION.fitDuration)
+        .call(zoom.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
     };
 
     simulation.on("end", fitAll);
@@ -210,7 +317,7 @@ export function D3GraphCanvas({
     };
   }, [nodes, edges, rootNodeId, highlightNodeId, onNodeClick, widthProp, height]);
 
-  // Pan to the highlighted node whenever it changes (without restarting simulation)
+  // Pan to highlighted node
   useEffect(() => {
     if (!highlightNodeId || !svgRef.current || !zoomRef.current) return;
     const node = simNodesRef.current.find((n) => n.id === highlightNodeId);
@@ -224,7 +331,7 @@ export function D3GraphCanvas({
     const ty = h / 2 - scale * node.y;
     d3.select(svgRef.current)
       .transition()
-      .duration(400)
+      .duration(GRAPH_ANIMATION.panDuration)
       .call(zoomRef.current.transform, d3.zoomIdentity.translate(tx, ty).scale(scale));
   }, [highlightNodeId]);
 

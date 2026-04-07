@@ -6,6 +6,7 @@ jobs that were in-progress when the previous worker died.
 """
 from __future__ import annotations
 
+import json as _json
 from datetime import UTC, datetime
 from threading import Lock
 from uuid import uuid4
@@ -13,7 +14,7 @@ from uuid import uuid4
 from sqlalchemy import text
 
 from app.db.config import get_database_settings
-from shared.contracts.python.v1.process import ProcessStatusResponse
+from shared.contracts.python.v1.process import ExtractionSummary, ProcessStatusResponse
 
 _JOB_STORE: dict[str, ProcessStatusResponse] = {}
 _NOTE_VERSION_INDEX: dict[tuple[str, str], str] = {}
@@ -75,13 +76,23 @@ def mark_stale_jobs_as_failed() -> None:
 
 # ── Postgres path ─────────────────────────────────────────────────────────────
 
+def _parse_extraction_summary(raw: object) -> ExtractionSummary | None:
+    if raw is None:
+        return None
+    try:
+        data = _json.loads(raw) if isinstance(raw, str) else raw
+        return ExtractionSummary(**data)
+    except Exception:  # noqa: BLE001
+        return None
+
+
 def _pg_create_or_get_job(*, note_id: str, content_hash: str) -> tuple[ProcessStatusResponse, bool]:
     with _get_session() as session:
         with session.begin():
             existing_row = session.execute(
                 text(
                     """
-                    SELECT job_id, status, error, created_at, updated_at
+                    SELECT job_id, status, error, created_at, updated_at, extraction_summary
                     FROM public.processing_jobs
                     WHERE note_id = :note_id AND content_hash = :content_hash
                       AND status NOT IN ('failed')
@@ -99,6 +110,7 @@ def _pg_create_or_get_job(*, note_id: str, content_hash: str) -> tuple[ProcessSt
                     error=str(existing_row[2]) if existing_row[2] else None,
                     created_at=str(existing_row[3]),
                     updated_at=str(existing_row[4]),
+                    extraction_summary=_parse_extraction_summary(existing_row[5]),
                 ), False
 
             job_id = str(uuid4())
@@ -122,19 +134,33 @@ def _pg_create_or_get_job(*, note_id: str, content_hash: str) -> tuple[ProcessSt
             ), True
 
 
-def _pg_transition_job(*, job_id: str, status: str, error: str | None) -> ProcessStatusResponse | None:
+def _pg_transition_job(
+    *,
+    job_id: str,
+    status: str,
+    error: str | None,
+    extraction_summary: dict[str, object] | None = None,
+) -> ProcessStatusResponse | None:
     with _get_session() as session:
         with session.begin():
             row = session.execute(
                 text(
                     """
                     UPDATE public.processing_jobs
-                    SET status = :status, error = :error, updated_at = NOW()
+                    SET status = :status,
+                        error = :error,
+                        extraction_summary = CAST(:extraction_summary AS jsonb),
+                        updated_at = NOW()
                     WHERE job_id = :job_id
-                    RETURNING job_id, status, error, created_at, updated_at
+                    RETURNING job_id, status, error, created_at, updated_at, extraction_summary
                     """
                 ),
-                {"job_id": job_id, "status": status, "error": error},
+                {
+                    "job_id": job_id,
+                    "status": status,
+                    "error": error,
+                    "extraction_summary": _json.dumps(extraction_summary) if extraction_summary else None,
+                },
             ).first()
     if row is None:
         return None
@@ -144,6 +170,7 @@ def _pg_transition_job(*, job_id: str, status: str, error: str | None) -> Proces
         error=str(row[2]) if row[2] else None,
         created_at=str(row[3]),
         updated_at=str(row[4]),
+        extraction_summary=_parse_extraction_summary(row[5]),
     )
 
 
@@ -152,7 +179,7 @@ def _pg_get_job(job_id: str) -> ProcessStatusResponse | None:
         row = session.execute(
             text(
                 """
-                SELECT job_id, status, error, created_at, updated_at
+                SELECT job_id, status, error, created_at, updated_at, extraction_summary
                 FROM public.processing_jobs
                 WHERE job_id = :job_id
                 """
@@ -167,6 +194,7 @@ def _pg_get_job(job_id: str) -> ProcessStatusResponse | None:
         error=str(row[2]) if row[2] else None,
         created_at=str(row[3]),
         updated_at=str(row[4]),
+        extraction_summary=_parse_extraction_summary(row[5]),
     )
 
 
@@ -187,12 +215,21 @@ def _mem_create_or_get_job(*, note_id: str, content_hash: str) -> tuple[ProcessS
         return record, True
 
 
-def _mem_transition_job(*, job_id: str, status: str, error: str | None) -> ProcessStatusResponse | None:
+def _mem_transition_job(
+    *,
+    job_id: str,
+    status: str,
+    error: str | None,
+    extraction_summary: dict[str, object] | None = None,
+) -> ProcessStatusResponse | None:
     with _LOCK:
         record = _JOB_STORE.get(job_id)
         if record is None:
             return None
-        updated = record.model_copy(update={"status": status, "updated_at": _utc_now_iso(), "error": error})
+        updates: dict[str, object] = {"status": status, "updated_at": _utc_now_iso(), "error": error}
+        if extraction_summary is not None:
+            updates["extraction_summary"] = ExtractionSummary(**extraction_summary)
+        updated = record.model_copy(update=updates)
         _JOB_STORE[job_id] = updated
         return updated
 
@@ -210,18 +247,34 @@ def create_or_get_job(*, note_id: str, content_hash: str) -> tuple[ProcessStatus
     return _mem_create_or_get_job(note_id=note_id, content_hash=content_hash)
 
 
-def _transition_job(*, job_id: str, status: str, error: str | None) -> ProcessStatusResponse | None:
+def _transition_job(
+    *,
+    job_id: str,
+    status: str,
+    error: str | None,
+    extraction_summary: dict[str, object] | None = None,
+) -> ProcessStatusResponse | None:
     if _is_postgres():
-        return _pg_transition_job(job_id=job_id, status=status, error=error)
-    return _mem_transition_job(job_id=job_id, status=status, error=error)
+        return _pg_transition_job(
+            job_id=job_id, status=status, error=error, extraction_summary=extraction_summary,
+        )
+    return _mem_transition_job(
+        job_id=job_id, status=status, error=error, extraction_summary=extraction_summary,
+    )
 
 
 def mark_job_running(job_id: str) -> ProcessStatusResponse | None:
     return _transition_job(job_id=job_id, status="running", error=None)
 
 
-def mark_job_completed(job_id: str) -> ProcessStatusResponse | None:
-    return _transition_job(job_id=job_id, status="completed", error=None)
+def mark_job_completed(
+    job_id: str,
+    *,
+    extraction_summary: dict[str, object] | None = None,
+) -> ProcessStatusResponse | None:
+    return _transition_job(
+        job_id=job_id, status="completed", error=None, extraction_summary=extraction_summary,
+    )
 
 
 def mark_job_failed(job_id: str, *, error: str) -> ProcessStatusResponse | None:

@@ -103,8 +103,11 @@
   --info-text: #1e40af;
 
   /* Graph colors */
-  --graph-node-note:   #1d6d4f;
-  --graph-node-entity: #4568a6;
-  --graph-node-other:  #6c6f75;
-  --graph-edge:        #8ba296;
+  --graph-node-note:        #1d6d4f;
+  --graph-node-entity:      #4568a6;
+  --graph-node-other:       #6c6f75;
+  --graph-edge:             #8ba296;
+  --graph-node-highlight:   #e07b1a;
+  --graph-edge-dim:         rgba(139, 162, 150, 0.15);
+  --graph-node-dim-opacity: 0.2;
 }

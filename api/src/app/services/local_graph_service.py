@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
-import re
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
@@ -13,14 +12,17 @@ from app.db.models.note import Note
 from app.db.repositories.entity_alias_repository import EntityAliasRepository
 from app.nlp.pipeline import NoteNlpPipeline
 from app.nlp.types import BlockTextInput
+from app.utils.text import (
+    extract_wiki_link_titles,
+    normalize_entity_key,
+    normalize_include_types,
+    normalize_title_key,
+)
 from shared.contracts.python.v1.graph import LocalGraphResponse
 from shared.contracts.python.v1.graph import LocalGraphEdge
 from shared.contracts.python.v1.graph import LocalGraphFilters
 from shared.contracts.python.v1.graph import LocalGraphMeta
 from shared.contracts.python.v1.graph import LocalGraphNode
-
-_VALID_INCLUDE_TYPES = {"note", "entity", "relation"}
-_WIKI_LINK_PATTERN = re.compile(r"\[\[([^\[\]]+)\]\]")
 
 
 @dataclass(frozen=True, slots=True)
@@ -37,6 +39,7 @@ class _NoteSnapshot:
     note_id: str
     note_title: str
     content_text: str
+    subject_id: str
     blocks: list[BlockTextInput]
 
 
@@ -49,25 +52,17 @@ class LocalGraphService:
         self._session = session
         self._pipeline = pipeline or NoteNlpPipeline()
 
-    def _normalize_title(self, value: str) -> str:
-        return " ".join(value.split()).strip().lower()
+    @staticmethod
+    def _normalize_title(value: str) -> str:
+        return normalize_title_key(value)
 
-    def _normalize_entity_key(self, value: str) -> str:
-        cleaned = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
-        return cleaned or "unknown"
+    @staticmethod
+    def _normalize_entity_key(value: str) -> str:
+        return normalize_entity_key(value)
 
-    def _normalize_include_types(self, values: list[str]) -> list[str]:
-        normalized: list[str] = []
-        seen: set[str] = set()
-        for item in values:
-            cleaned = item.strip().lower()
-            if cleaned not in _VALID_INCLUDE_TYPES or cleaned in seen:
-                continue
-            seen.add(cleaned)
-            normalized.append(cleaned)
-        if not normalized:
-            return ["note", "entity", "relation"]
-        return normalized
+    @staticmethod
+    def _normalize_include_types(values: list[str]) -> list[str]:
+        return normalize_include_types(values)
 
     def _fetch_reachable_notes(self, seed_id: str, max_hops: int) -> list[_NoteSnapshot]:
         """Load only notes reachable from seed_id within max_hops via wiki-links.
@@ -77,16 +72,17 @@ class LocalGraphService:
         per-hop ILIKE scan — still O(n) for incoming, but blocks are never loaded
         for notes outside the reachable set.
         """
-        # note_id -> (note_title, content_text)
-        visited: dict[str, tuple[str, str]] = {}
+        # note_id -> (note_title, content_text, subject_id)
+        visited: dict[str, tuple[str, str, str]] = {}
 
         seed_row = self._session.execute(
-            select(Note.note_id, Note.note_title, Note.content_text).where(Note.note_id == seed_id)
+            select(Note.note_id, Note.note_title, Note.content_text, Note.subject_id)
+            .where(Note.note_id == seed_id)
         ).first()
         if seed_row is None:
             return []
 
-        visited[str(seed_row[0])] = (str(seed_row[1]), str(seed_row[2]))
+        visited[str(seed_row[0])] = (str(seed_row[1]), str(seed_row[2]), str(seed_row[3]) if seed_row[3] else "inbox")
         frontier_ids: set[str] = {str(seed_row[0])}
 
         for _hop in range(max_hops):
@@ -96,20 +92,20 @@ class LocalGraphService:
             # --- outgoing: SQL fetch by wiki-link title match ---
             outgoing_titles: set[str] = set()
             for fid in frontier_ids:
-                _, content = visited[fid]
+                _, content, _ = visited[fid]
                 for t in self._extract_wiki_links(content):
                     outgoing_titles.add(t)
 
             new_ids: set[str] = set()
             if outgoing_titles:
                 out_rows = self._session.execute(
-                    select(Note.note_id, Note.note_title, Note.content_text)
+                    select(Note.note_id, Note.note_title, Note.content_text, Note.subject_id)
                     .where(func.lower(Note.note_title).in_(list(outgoing_titles)))
                     .where(Note.note_id.not_in(list(visited.keys())))
                 ).all()
                 for r in out_rows:
                     nid = str(r[0])
-                    visited[nid] = (str(r[1]), str(r[2]))
+                    visited[nid] = (str(r[1]), str(r[2]), str(r[3]) if r[3] else "inbox")
                     new_ids.add(nid)
 
             # --- incoming: ILIKE scan for notes linking TO frontier notes ---
@@ -119,13 +115,13 @@ class LocalGraphService:
                     Note.content_text.ilike(f"%[[{t}]]%") for t in frontier_titles
                 ]
                 in_rows = self._session.execute(
-                    select(Note.note_id, Note.note_title, Note.content_text)
+                    select(Note.note_id, Note.note_title, Note.content_text, Note.subject_id)
                     .where(or_(*like_clauses))
                     .where(Note.note_id.not_in(list(visited.keys())))
                 ).all()
                 for r in in_rows:
                     nid = str(r[0])
-                    visited[nid] = (str(r[1]), str(r[2]))
+                    visited[nid] = (str(r[1]), str(r[2]), str(r[3]) if r[3] else "inbox")
                     new_ids.add(nid)
 
             frontier_ids = new_ids
@@ -148,21 +144,15 @@ class LocalGraphService:
                 note_id=nid,
                 note_title=title,
                 content_text=content,
+                subject_id=subject_id,
                 blocks=blocks_by_note_id.get(nid, []),
             )
-            for nid, (title, content) in visited.items()
+            for nid, (title, content, subject_id) in visited.items()
         ]
 
-    def _extract_wiki_links(self, content_text: str) -> list[str]:
-        links: list[str] = []
-        seen: set[str] = set()
-        for match in _WIKI_LINK_PATTERN.finditer(content_text):
-            normalized = self._normalize_title(match.group(1))
-            if not normalized or normalized in seen:
-                continue
-            seen.add(normalized)
-            links.append(normalized)
-        return links
+    @staticmethod
+    def _extract_wiki_links(content_text: str) -> list[str]:
+        return extract_wiki_link_titles(content_text)
 
     def _build_dictionary_terms(self) -> list[str]:
         alias_records = EntityAliasRepository(self._session).list_alias_index()
@@ -256,6 +246,7 @@ class LocalGraphService:
                     source_note_id=graph_note.note_id,
                     metadata={
                         "note_id": graph_note.note_id,
+                        "subject_id": graph_note.subject_id,
                         "content_preview": graph_note.content_text[:140],
                     },
                 )

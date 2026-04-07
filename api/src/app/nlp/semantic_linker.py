@@ -16,7 +16,7 @@ from dataclasses import dataclass
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
-from app.db.repositories.graph_repository import GraphRepository
+from app.db.repositories.embedding_repository import EmbeddingRepository
 from shared.contracts.python.v1.connections import NoteConnectionItem, NoteConnectionsResponse
 
 _LOGGER = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ class _NoteTitle:
 class SemanticLinkerService:
     def __init__(self, session: Session) -> None:
         self._session = session
-        self._repo = GraphRepository(session)
+        self._repo = EmbeddingRepository(session)
 
     def _get_note_embedding(self, note_id: str) -> list[float] | None:
         row = self._session.execute(

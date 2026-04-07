@@ -290,6 +290,22 @@ export async function fetchConceptInsight(
   return parseJsonResponse<ConceptInsightResponse>(response);
 }
 
+// ── File import ───────────────────────────────────────────────────────────────
+
+import type { ImportNoteRequest, ImportNoteResponse } from "../../../shared/contracts/ts/v1/import";
+
+export async function importNote(
+  baseUrl: string,
+  payload: ImportNoteRequest,
+): Promise<ImportNoteResponse> {
+  const response = await apiFetch(`${baseUrl}/v1/notes/import`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(payload),
+  });
+  return parseJsonResponse<ImportNoteResponse>(response);
+}
+
 interface GlobalGraphQuery {
   limit_nodes?: number;
   min_confidence?: number;

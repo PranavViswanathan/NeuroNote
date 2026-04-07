@@ -12,6 +12,7 @@ from app.db.models.note_tag import NoteTag
 from app.db.models.subject import Subject
 from app.db.models.tag import Tag
 from app.db.repositories.block_repository import BlockRepository
+from app.utils.text import extract_wiki_link_titles, normalize_title, normalize_title_key
 
 DEFAULT_SUBJECT_ID = "inbox"
 DEFAULT_SUBJECT_NAME = "Inbox"
@@ -96,11 +97,10 @@ class NoteRepository:
         return normalized
 
     def _normalize_title(self, note_title: str) -> str:
-        collapsed = " ".join(note_title.split())
-        return collapsed.strip()
+        return normalize_title(note_title)
 
     def _normalize_title_key(self, note_title: str) -> str:
-        return self._normalize_title(note_title).lower()
+        return normalize_title_key(note_title)
 
     def _assert_unique_title_for_note(self, *, note_id: str, note_title: str) -> None:
         normalized_key = self._normalize_title_key(note_title)
@@ -114,12 +114,7 @@ class NoteRepository:
             raise NoteTitleConflictError(self._normalize_title(note_title))
 
     def _iter_wiki_link_titles(self, content_text: str) -> list[str]:
-        titles: list[str] = []
-        for match in WIKI_LINK_PATTERN.finditer(content_text):
-            normalized = self._normalize_title(match.group(1))
-            if normalized:
-                titles.append(normalized)
-        return titles
+        return extract_wiki_link_titles(content_text)
 
     def _make_backlink_snippet(self, content_text: str, matched_title: str) -> str:
         token = f"[[{matched_title}]]"

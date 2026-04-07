@@ -34,7 +34,7 @@ from app.services.graph_sync_service import (
     GraphSyncPayload,
     GraphSyncService,
 )
-from shared.contracts.python.v1.process import ProcessNoteRequest
+from shared.contracts.python.v1.process import ExtractionSummary, ProcessNoteRequest
 
 _DEFAULT_GRAPH_NAME = "neuronote"
 _LOGGER = logging.getLogger(__name__)
@@ -213,7 +213,7 @@ class NoteProcessingService:
 
     # ── Core processing ──────────────────────────────────────────────────────
 
-    def _persist_graph_and_vector(self, *, snapshot: ProcessedNoteSnapshot) -> None:
+    def _persist_graph_and_vector(self, *, snapshot: ProcessedNoteSnapshot) -> ExtractionSummary:
         alias_records = self._load_alias_records()
         # Merge entity-alias terms with all concepts extracted from previous notes.
         # This feeds the SLM its own prior output as "known concepts", closing the
@@ -248,9 +248,16 @@ class NoteProcessingService:
             register_concepts([(e.text, e.entity_id) for e in result.entities if e.label == "concept"])
         resolution_batch = self._build_resolver(alias_records).resolve(result.entities)
 
+        summary = ExtractionSummary(
+            entity_count=len(result.entities),
+            relation_count=len(result.relations),
+            keyphrase_count=len(result.keyphrases),
+            top_entities=[e.text for e in result.entities[:5]],
+        )
+
         with self._session_factory() as session:
             if not self._is_postgres(session):
-                return
+                return summary
 
             with session.begin():
                 resolved_index: dict[str, CanonicalEntityMapping] = {
@@ -284,6 +291,8 @@ class NoteProcessingService:
         # Classify synonym/subtopic relationships for new concepts.
         # Runs in its own session after the graph sync commits.
         self._run_concept_meta_classification(result.entities)
+
+        return summary
 
     # ── Concept meta-classification ──────────────────────────────────────────
 
@@ -379,6 +388,6 @@ class NoteProcessingService:
         except Exception:
             _LOGGER.debug("concept_meta: failed to mark classified", exc_info=True)
 
-    def process_note(self, payload: ProcessNoteRequest) -> None:
+    def process_note(self, payload: ProcessNoteRequest) -> ExtractionSummary:
         snapshot = self._load_snapshot(payload.note_id)
-        self._persist_graph_and_vector(snapshot=snapshot)
+        return self._persist_graph_and_vector(snapshot=snapshot)

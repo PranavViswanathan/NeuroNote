@@ -21,3 +21,4 @@ Both sides must stay in sync — update them in the same commit.
 | `entity_alias` | Alias management and resolve preview |
 | `connections` | Note connections |
 | `backfill` | Startup backfill status |
+| `import_` | Markdown/text file import |

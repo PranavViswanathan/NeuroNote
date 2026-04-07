@@ -2,7 +2,6 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 import hashlib
-import re
 
 from sqlalchemy import desc, select
 from sqlalchemy.orm import Session
@@ -13,14 +12,17 @@ from app.db.models.note import Note
 from app.db.repositories.entity_alias_repository import EntityAliasRepository
 from app.nlp.pipeline import NoteNlpPipeline
 from app.nlp.types import BlockTextInput
+from app.utils.text import (
+    extract_wiki_link_titles,
+    normalize_entity_key,
+    normalize_include_types,
+    normalize_title_key,
+)
 from shared.contracts.python.v1.graph import GlobalGraphFilters
 from shared.contracts.python.v1.graph import GlobalGraphMeta
 from shared.contracts.python.v1.graph import GlobalGraphResponse
 from shared.contracts.python.v1.graph import LocalGraphEdge
 from shared.contracts.python.v1.graph import LocalGraphNode
-
-_VALID_INCLUDE_TYPES = {"note", "entity", "relation"}
-_WIKI_LINK_PATTERN = re.compile(r"\[\[([^\[\]]+)\]\]")
 
 
 @dataclass(frozen=True, slots=True)
@@ -35,6 +37,7 @@ class _NoteSnapshot:
     note_id: str
     note_title: str
     content_text: str
+    subject_id: str
     blocks: list[BlockTextInput]
 
 
@@ -43,31 +46,23 @@ class GlobalGraphService:
         self._session = session
         self._pipeline = pipeline or NoteNlpPipeline()
 
-    def _normalize_title(self, value: str) -> str:
-        return " ".join(value.split()).strip().lower()
+    @staticmethod
+    def _normalize_title(value: str) -> str:
+        return normalize_title_key(value)
 
-    def _normalize_entity_key(self, value: str) -> str:
-        cleaned = re.sub(r"[^a-z0-9]+", "-", value.lower()).strip("-")
-        return cleaned or "unknown"
+    @staticmethod
+    def _normalize_entity_key(value: str) -> str:
+        return normalize_entity_key(value)
 
-    def _normalize_include_types(self, values: list[str]) -> list[str]:
-        normalized: list[str] = []
-        seen: set[str] = set()
-        for item in values:
-            cleaned = item.strip().lower()
-            if cleaned not in _VALID_INCLUDE_TYPES or cleaned in seen:
-                continue
-            seen.add(cleaned)
-            normalized.append(cleaned)
-        if not normalized:
-            return ["note", "entity", "relation"]
-        return normalized
+    @staticmethod
+    def _normalize_include_types(values: list[str]) -> list[str]:
+        return normalize_include_types(values)
 
     def _list_notes(self, *, limit: int) -> list[_NoteSnapshot]:
         # Fetch the most-recently-updated notes up to the requested limit to
         # avoid loading the entire corpus when limit_nodes is small.
         rows = self._session.execute(
-            select(Note.note_id, Note.note_title, Note.content_text)
+            select(Note.note_id, Note.note_title, Note.content_text, Note.subject_id)
             .order_by(desc(Note.updated_at))
             .limit(limit)
         ).all()
@@ -92,21 +87,15 @@ class GlobalGraphService:
                 note_id=str(row[0]),
                 note_title=str(row[1]),
                 content_text=str(row[2]),
+                subject_id=str(row[3]) if row[3] else "inbox",
                 blocks=list(blocks_by_note_id.get(str(row[0]), [])),
             )
             for row in rows
         ]
 
-    def _extract_wiki_links(self, content_text: str) -> list[str]:
-        links: list[str] = []
-        seen: set[str] = set()
-        for match in _WIKI_LINK_PATTERN.finditer(content_text):
-            normalized = self._normalize_title(match.group(1))
-            if not normalized or normalized in seen:
-                continue
-            seen.add(normalized)
-            links.append(normalized)
-        return links
+    @staticmethod
+    def _extract_wiki_links(content_text: str) -> list[str]:
+        return extract_wiki_link_titles(content_text)
 
     def _build_dictionary_terms(self) -> list[str]:
         alias_records = EntityAliasRepository(self._session).list_alias_index()
@@ -176,6 +165,7 @@ class GlobalGraphService:
                     source_note_id=note.note_id,
                     metadata={
                         "note_id": note.note_id,
+                        "subject_id": note.subject_id,
                         "content_preview": note.content_text[:140],
                     },
                 )
