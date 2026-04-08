@@ -59,7 +59,7 @@ export function QuickCaptureModal({ isOpen, onClose, onSave }: QuickCaptureModal
         />
         <div className="quick-capture-footer">
           <span className="quick-capture-hint">
-            {navigator.platform?.includes("Mac") ? "\u2318" : "Ctrl"}+Enter to save
+            {typeof navigator !== "undefined" && navigator.platform?.includes("Mac") ? "\u2318" : "Ctrl"}+Enter to save
           </span>
           <button
             type="button"
