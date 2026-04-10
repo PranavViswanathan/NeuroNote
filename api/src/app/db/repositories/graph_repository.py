@@ -55,7 +55,7 @@ class GraphRepository:
             ") AS (value ag_catalog.agtype)"
         )
         conn = self._session.connection()
-        return conn.exec_driver_sql(sql, None).all()
+        return list(conn.exec_driver_sql(sql, None).all())
 
     def ensure_graph_exists(self, *, graph_name: str = "neuronote") -> None:
         self._validate_graph_name(graph_name)

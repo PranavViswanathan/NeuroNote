@@ -46,10 +46,17 @@ def _create_job_record() -> ProcessStatusResponse:
 
 
 def reset_job_store() -> None:
-    """Clear in-memory store (used by tests)."""
+    """Clear in-memory store and DB table (used by tests)."""
     with _LOCK:
         _JOB_STORE.clear()
         _NOTE_VERSION_INDEX.clear()
+    if _is_postgres():
+        try:
+            with _get_session() as session:
+                with session.begin():
+                    session.execute(text("TRUNCATE public.processing_jobs"))
+        except Exception:
+            pass
 
 
 def mark_stale_jobs_as_failed() -> None:
@@ -81,7 +88,9 @@ def _parse_extraction_summary(raw: object) -> ExtractionSummary | None:
         return None
     try:
         data = _json.loads(raw) if isinstance(raw, str) else raw
-        return ExtractionSummary(**data)
+        if not isinstance(data, dict):
+            return None
+        return ExtractionSummary.model_validate(data)
     except Exception:  # noqa: BLE001
         return None
 
@@ -228,7 +237,7 @@ def _mem_transition_job(
             return None
         updates: dict[str, object] = {"status": status, "updated_at": _utc_now_iso(), "error": error}
         if extraction_summary is not None:
-            updates["extraction_summary"] = ExtractionSummary(**extraction_summary)
+            updates["extraction_summary"] = ExtractionSummary.model_validate(extraction_summary)
         updated = record.model_copy(update=updates)
         _JOB_STORE[job_id] = updated
         return updated

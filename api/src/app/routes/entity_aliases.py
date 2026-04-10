@@ -5,8 +5,8 @@ from sqlalchemy.orm import Session
 
 from app.db.repositories.entity_alias_repository import EntityAliasRepository
 from app.db.session import get_db_session
-from app.nlp.resolution.resolver import CanonicalAlias, EntityResolver
 from app.nlp.types import ExtractedEntity
+from app.services.entity_resolution_service import EntityResolutionService
 from shared.contracts.python.v1.entity_alias import (
     ConfirmEntityAliasRequest,
     ConfirmEntityAliasResponse,
@@ -59,24 +59,7 @@ def resolve_entities_preview(
     payload: ResolveEntitiesRequest,
     session: Session = Depends(get_db_session),
 ) -> ResolveEntitiesResponse:
-    alias_records = EntityAliasRepository(session).list_alias_index()
-    alias_index = {
-        alias_text: CanonicalAlias(
-            canonical_entity_id=record.canonical_entity_id,
-            canonical_name=record.canonical_name,
-        )
-        for alias_text, record in alias_records.items()
-    }
-    abbreviation_index = {
-        alias_text.replace(" ", ""): record.canonical_name
-        for alias_text, record in alias_records.items()
-        if " " not in alias_text and 1 < len(alias_text) <= 10
-    }
-    resolver = EntityResolver(
-        alias_index=alias_index,
-        abbreviation_index=abbreviation_index,
-    )
-    batch = resolver.resolve(
+    batch = EntityResolutionService(session).preview_resolution(
         [
             ExtractedEntity(
                 entity_id=item.entity_id,
@@ -87,7 +70,6 @@ def resolve_entities_preview(
             for item in payload.entities
         ]
     )
-
     return ResolveEntitiesResponse(
         resolved=[
             ResolvedEntityOutput(

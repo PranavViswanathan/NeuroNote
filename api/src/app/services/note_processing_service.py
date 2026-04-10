@@ -16,11 +16,11 @@ from app.db.models.nlp_extraction_cache import NlpExtractionCache
 from app.db.repositories.entity_alias_repository import AliasRecord, EntityAliasRepository
 from app.db.repositories.graph_repository import GraphRepository
 from app.db.repositories.note_repository import NoteRepository
+from app.services.entity_resolution_service import EntityResolutionService
 from app.nlp.concept_meta import ConceptMetaClassifier
 from app.nlp.concept_registry import get_known_concepts, register_concepts
 from app.nlp.config import get_nlp_settings
 from app.nlp.pipeline import NoteNlpPipeline
-from app.nlp.resolution.resolver import CanonicalAlias, EntityResolver
 from app.nlp.types import (
     BlockTextInput,
     ExtractedEntity,
@@ -129,24 +129,6 @@ class NoteProcessingService:
             ordered_terms.append(normalized)
         return ordered_terms
 
-    def _build_resolver(self, alias_records: dict[str, AliasRecord]) -> EntityResolver:
-        alias_index = {
-            alias_text: CanonicalAlias(
-                canonical_entity_id=record.canonical_entity_id,
-                canonical_name=record.canonical_name,
-            )
-            for alias_text, record in alias_records.items()
-        }
-        abbreviation_index = {
-            alias_text.replace(" ", ""): record.canonical_name
-            for alias_text, record in alias_records.items()
-            if " " not in alias_text and 1 < len(alias_text) <= 10
-        }
-        return EntityResolver(
-            alias_index=alias_index,
-            abbreviation_index=abbreviation_index,
-        )
-
     # ── NLP extraction cache ─────────────────────────────────────────────────
 
     def _try_load_nlp_cache(
@@ -246,7 +228,7 @@ class NoteProcessingService:
         # Register newly extracted concepts so subsequent notes see them.
         if result.entities:
             register_concepts([(e.text, e.entity_id) for e in result.entities if e.label == "concept"])
-        resolution_batch = self._build_resolver(alias_records).resolve(result.entities)
+        resolution_batch = EntityResolutionService.build_resolver(alias_records).resolve(result.entities)
 
         summary = ExtractionSummary(
             entity_count=len(result.entities),
