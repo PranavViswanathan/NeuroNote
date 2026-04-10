@@ -36,37 +36,27 @@ class TestBuildResolver:
         assert batch.resolved == []
 
     def test_abbreviation_filter_includes_short_single_word_aliases(self) -> None:
-        # "ML" has no spaces, len=2, len<=10 → qualifies for abbreviation index
         alias_records = {"ML": _alias_record("ML", "machine learning", "ent-ml")}
         resolver = EntityResolutionService.build_resolver(alias_records)
         batch = resolver.resolve([_entity("ML", "ent-ml-source")])
         assert len(batch.resolved) == 1
 
     def test_abbreviation_filter_excludes_multi_word_aliases(self) -> None:
-        # "machine learning" has a space → not in abbreviation_index.
-        # If entity "machinelearning" resolves at all, it must be via fuzzy — not abbreviation.
         alias_records = {"machine learning": _alias_record("machine learning", "Machine Learning", "ent-ml")}
         resolver = EntityResolutionService.build_resolver(alias_records)
         batch = resolver.resolve([_entity("machinelearning", "ent-nospace")])
-        if batch.resolved:
-            assert batch.resolved[0].matched_layer != "abbreviation"
+        assert len(batch.resolved) == 0
 
     def test_abbreviation_filter_excludes_single_char_aliases(self) -> None:
-        # len("A") == 1 → excluded from abbreviation index
         alias_records = {"A": _alias_record("A", "Alpha", "ent-alpha")}
         resolver = EntityResolutionService.build_resolver(alias_records)
         batch = resolver.resolve([_entity("A", "ent-a")])
-        # Should not resolve via abbreviation (len 1 excluded), and "A" IS in alias_index so it resolves via alias
-        # This test verifies the filter boundary, not that 'A' is entirely excluded
         assert len(batch.resolved) + len(batch.unresolved) == 1
 
     def test_abbreviation_filter_excludes_aliases_longer_than_ten_chars(self) -> None:
-        # len("averylongtag") > 10 → excluded from abbreviation index
         alias_records = {"averylongtag": _alias_record("averylongtag", "Some Concept", "ent-long")}
         resolver = EntityResolutionService.build_resolver(alias_records)
-        # Try to match the concatenated form — should not resolve via abbreviation
         batch = resolver.resolve([_entity("averylongtag", "ent-src")])
-        # resolves via alias_index (direct match) even though not in abbreviation_index
         assert len(batch.resolved) == 1
 
     def test_empty_alias_records_produces_empty_resolver(self) -> None:
@@ -82,6 +72,7 @@ class TestPreviewResolution:
         configured_db: None,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
+        from app.db.repositories.entity_alias_repository import EntityAliasRepository
         import app.services.entity_resolution_service as svc_module
 
         class _FakeRepo:
