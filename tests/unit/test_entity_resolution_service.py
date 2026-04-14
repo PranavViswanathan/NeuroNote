@@ -42,10 +42,14 @@ class TestBuildResolver:
         assert len(batch.resolved) == 1
 
     def test_abbreviation_filter_excludes_multi_word_aliases(self) -> None:
+        # "machine learning" has a space so its stripped form "machinelearning" should
+        # NOT be registered in the abbreviation index.  The entity may still resolve
+        # via fuzzy matching (0.97 similarity), but the matched_layer must not be
+        # "abbreviation".
         alias_records = {"machine learning": _alias_record("machine learning", "Machine Learning", "ent-ml")}
         resolver = EntityResolutionService.build_resolver(alias_records)
         batch = resolver.resolve([_entity("machinelearning", "ent-nospace")])
-        assert len(batch.resolved) == 0
+        assert all(r.matched_layer != "abbreviation" for r in batch.resolved)
 
     def test_abbreviation_filter_excludes_single_char_aliases(self) -> None:
         alias_records = {"A": _alias_record("A", "Alpha", "ent-alpha")}

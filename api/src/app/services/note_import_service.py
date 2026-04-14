@@ -30,6 +30,7 @@ class ImportedNote:
     note_title: str
     content_hash: str
     updated_at: str
+    content_text: str
 
 
 class NoteImportService:
@@ -63,9 +64,11 @@ class NoteImportService:
         if not isinstance(nodes, list):
             return " "
         for node in nodes:
-            assert isinstance(node, dict)
+            if not isinstance(node, dict):
+                continue
             for child in node.get("content", []):
-                assert isinstance(child, dict)
+                if not isinstance(child, dict):
+                    continue
                 if child.get("type") == "text":
                     text = child.get("text", "")
                     if isinstance(text, str):
@@ -102,4 +105,5 @@ class NoteImportService:
             note_title=title,
             content_hash=saved.content_hash,
             updated_at=now_iso,
+            content_text=plain_text,
         )

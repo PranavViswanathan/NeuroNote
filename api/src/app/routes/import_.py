@@ -61,7 +61,7 @@ def import_note(
     if created:
         process_payload = ProcessNoteRequest(
             note_id=imported.note_id,
-            content_text="",
+            content_text=imported.content_text,
             content_hash=imported.content_hash,
             updated_at=imported.updated_at,
         )

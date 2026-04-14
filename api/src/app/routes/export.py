@@ -5,7 +5,8 @@ from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
 from app.db.session import get_db_session
-from app.services.export_service import ExportService, NoteNotFoundError
+from app.services.export_service import ExportService
+from app.services.note_processing_service import NoteNotFoundError
 
 router = APIRouter()
 

@@ -1,7 +1,7 @@
 """Entity resolution service.
 
-Centralises the alias-index construction logic that was previously duplicated
-between the entity_aliases route handler and NoteProcessingService._build_resolver.
+Builds the alias and abbreviation indexes required by EntityResolver and
+provides a single, session-scoped entry point for resolving entity batches.
 """
 from __future__ import annotations
 
@@ -24,18 +24,15 @@ class EntityResolutionService:
         2–10 characters (e.g. "ML", "NLP"), matching the heuristic used when
         the route and NoteProcessingService were separate.
         """
-        alias_index = {
-            alias_text: CanonicalAlias(
+        alias_index: dict[str, CanonicalAlias] = {}
+        abbreviation_index: dict[str, str] = {}
+        for alias_text, record in alias_records.items():
+            alias_index[alias_text] = CanonicalAlias(
                 canonical_entity_id=record.canonical_entity_id,
                 canonical_name=record.canonical_name,
             )
-            for alias_text, record in alias_records.items()
-        }
-        abbreviation_index = {
-            alias_text.replace(" ", ""): record.canonical_name
-            for alias_text, record in alias_records.items()
-            if " " not in alias_text and 1 < len(alias_text) <= 10
-        }
+            if " " not in alias_text and 1 < len(alias_text) <= 10:
+                abbreviation_index[alias_text.replace(" ", "")] = record.canonical_name
         return EntityResolver(
             alias_index=alias_index,
             abbreviation_index=abbreviation_index,

@@ -7,6 +7,7 @@ jobs that were in-progress when the previous worker died.
 from __future__ import annotations
 
 import json as _json
+import logging
 from datetime import UTC, datetime
 from threading import Lock
 from uuid import uuid4
@@ -19,6 +20,7 @@ from shared.contracts.python.v1.process import ExtractionSummary, ProcessStatusR
 _JOB_STORE: dict[str, ProcessStatusResponse] = {}
 _NOTE_VERSION_INDEX: dict[tuple[str, str], str] = {}
 _LOCK = Lock()
+_LOG = logging.getLogger(__name__)
 
 
 def _utc_now_iso() -> str:
@@ -56,7 +58,7 @@ def reset_job_store() -> None:
                 with session.begin():
                     session.execute(text("TRUNCATE public.processing_jobs"))
         except Exception:
-            pass
+            _LOG.warning("reset_job_store: could not truncate processing_jobs", exc_info=True)
 
 
 def mark_stale_jobs_as_failed() -> None:
