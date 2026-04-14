@@ -72,7 +72,6 @@ class TestPreviewResolution:
         configured_db: None,
         monkeypatch: pytest.MonkeyPatch,
     ) -> None:
-        from app.db.repositories.entity_alias_repository import EntityAliasRepository
         import app.services.entity_resolution_service as svc_module
 
         class _FakeRepo:
